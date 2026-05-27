@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jerusalem — Prototype A · Classic Console</title>
+<style>
+  :root{
+    --bg:#1b1b1d; --panel:#242427; --panel2:#2c2c30; --line:#3a3a3f;
+    --txt:#e9e9ec; --dim:#9a9aa2; --accent:#3b82f6; --live:#ff453a; --ok:#32d74b;
+    --chip-song:#5e9bff; --chip-bible:#c08cff; --chip-text:#ffb454; --chip-video:#ff6f91; --chip-image:#4fd1c5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    background:#0c0c0e; color:var(--txt); display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  .window{
+    width:min(1280px,100%); height:min(800px,92vh); background:var(--bg);
+    border-radius:12px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.6);
+    display:flex; flex-direction:column; border:1px solid #000;
+  }
+  /* title bar */
+  .titlebar{height:38px; background:linear-gradient(#34343a,#28282c); display:flex; align-items:center;
+    padding:0 14px; border-bottom:1px solid #000; flex-shrink:0;}
+  .lights{display:flex; gap:8px}
+  .lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights .r{background:#ff5f57}.lights .y{background:#febc2e}.lights .g{background:#28c840}
+  .title{flex:1;text-align:center;font-size:13px;font-weight:600;color:#d8d8dd}
+  .out-status{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px}
+  .out-status .dot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live)}
+  /* toolbar */
+  .toolbar{height:48px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px;padding:0 12px;flex-shrink:0}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    font-size:12px;padding:6px 11px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px}
+  .btn:hover{background:#37373c}
+  .btn.primary{background:var(--accent);border-color:var(--accent)}
+  .search{flex:1;max-width:380px;margin:0 auto;background:#161618;border:1px solid var(--line);
+    border-radius:7px;padding:7px 12px;font-size:12px;color:var(--dim);display:flex;align-items:center;gap:8px}
+  .spacer{flex:1}
+  /* body */
+  .body{flex:1;display:grid;grid-template-columns:248px 1fr 332px;overflow:hidden}
+  /* sidebar */
+  .sidebar{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  .tabs{display:flex;padding:8px 8px 0;gap:4px}
+  .tab{flex:1;text-align:center;font-size:12px;padding:7px;border-radius:7px 7px 0 0;color:var(--dim);cursor:pointer}
+  .tab.active{background:var(--panel2);color:var(--txt)}
+  .section-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:12px 14px 6px}
+  .list{overflow-y:auto;flex:1}
+  .item{display:flex;align-items:center;gap:9px;padding:8px 14px;font-size:13px;cursor:pointer;border-left:3px solid transparent}
+  .item:hover{background:var(--panel2)}
+  .item.sel{background:#33343a;border-left-color:var(--accent)}
+  .chip{width:20px;height:20px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:700;color:#10131a}
+  .item small{color:var(--dim);font-size:11px;margin-left:auto}
+  .mediabin{border-top:1px solid var(--line);padding:10px 14px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .media-thumb{aspect-ratio:16/9;border-radius:5px;background:linear-gradient(135deg,#3a3a42,#23232a);
+    border:1px solid var(--line);font-size:9px;color:var(--dim);display:flex;align-items:flex-end;padding:3px}
+  /* center */
+  .stage{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+  .stage-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .stage-head h2{font-size:15px;font-weight:600}
+  .stage-head .meta{font-size:11px;color:var(--dim)}
+  .sec-chips{display:flex;gap:6px;margin-left:auto}
+  .sec{font-size:10px;padding:3px 8px;border-radius:20px;background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
+  .grid{flex:1;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;align-content:start}
+  .slide{border-radius:8px;overflow:hidden;border:2px solid transparent;cursor:pointer;background:#000;position:relative}
+  .slide .thumb{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;
+    font-size:11px;line-height:1.4;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .slide .lbl{position:absolute;top:6px;left:6px;font-size:9px;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px;color:#d8d8dd}
+  .slide .no{position:absolute;bottom:6px;right:8px;font-size:10px;color:var(--dim)}
+  .slide:hover{border-color:#55565d}
+  .slide.live{border-color:var(--live);box-shadow:0 0 0 2px rgba(255,69,58,.3)}
+  .bg1{background:linear-gradient(135deg,#1e3a8a,#0f172a)}.bg2{background:linear-gradient(135deg,#3b0764,#1e1b4b)}
+  .bg3{background:linear-gradient(135deg,#064e3b,#022c22)}.bgvid{background:linear-gradient(135deg,#7f1d1d,#450a0a)}
+  /* right preview */
+  .preview{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;padding:14px;gap:12px;overflow-y:auto}
+  .mon{border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .mon .cap{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 10px;display:flex;align-items:center;gap:6px;color:var(--dim);background:var(--panel2)}
+  .mon.live .cap{color:#fff}.mon.live .cap .dot{width:7px;height:7px;border-radius:50%;background:var(--live)}
+  .screen{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:14px;
+    font-size:14px;line-height:1.45;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);position:relative}
+  .screen .blackout{position:absolute;inset:0;background:#000;display:none;align-items:center;justify-content:center;color:#444;font-size:11px}
+  .transport{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .transport .t-btn{width:30px;height:28px;border-radius:6px;background:#3a3a40;border:none;color:#fff;cursor:pointer;font-size:12px}
+  .scrub{flex:1;height:4px;background:#46464d;border-radius:2px;position:relative}
+  .scrub b{position:absolute;left:0;top:0;bottom:0;width:38%;background:var(--accent);border-radius:2px}
+  .panic{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .panic button{padding:11px 0;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:12px;font-weight:600;cursor:pointer}
+  .panic .black:hover{background:#000;border-color:#000}
+  .panic .clear:hover{background:#3a3a40}
+  .panic button.on{background:var(--live);border-color:var(--live)}
+  /* status bar */
+  .statusbar{height:26px;background:var(--panel);border-top:1px solid var(--line);display:flex;align-items:center;
+    padding:0 14px;gap:16px;font-size:11px;color:var(--dim);flex-shrink:0}
+  .statusbar .ok{color:var(--ok)}
+  .kbd{background:#161618;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:10px;color:#bdbdc4}
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title">Jerusalem — Sunday AM · May 31</div>
+    <div class="out-status"><span class="dot"></span> Output: Display 2 · Live</div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn primary">+ New ▾</button>
+    <button class="btn"><span class="chip" style="background:var(--chip-song)">S</span> Song</button>
+    <button class="btn"><span class="chip" style="background:var(--chip-bible)">B</span> Bible</button>
+    <button class="btn"><span class="chip" style="background:var(--chip-text)">T</span> Text</button>
+    <button class="btn"><span class="chip" style="background:var(--chip-video)">V</span> Video</button>
+    <div class="search">⌕&nbsp; Search &amp; go live…</div>
+    <button class="btn">Editor</button>
+    <button class="btn">⚙︎</button>
+  </div>
+
+  <div class="body">
+    <!-- LEFT: playlists + library -->
+    <aside class="sidebar">
+      <div class="tabs"><div class="tab active">Playlists</div><div class="tab">Library</div></div>
+      <div class="section-label">Sunday AM · May 31</div>
+      <div class="list">
+        <div class="item"><span class="chip" style="background:var(--chip-video)">V</span> Welcome Loop <small>loop</small></div>
+        <div class="item sel"><span class="chip" style="background:var(--chip-song)">S</span> Amazing Grace <small>7</small></div>
+        <div class="item"><span class="chip" style="background:var(--chip-song)">S</span> 10,000 Reasons <small>9</small></div>
+        <div class="item"><span class="chip" style="background:var(--chip-bible)">B</span> John 3:16–18 <small>2</small></div>
+        <div class="item"><span class="chip" style="background:var(--chip-text)">T</span> Sermon · Living Hope <small>6</small></div>
+        <div class="item"><span class="chip" style="background:var(--chip-song)">S</span> Build My Life <small>8</small></div>
+        <div class="item"><span class="chip" style="background:var(--chip-image)">I</span> Closing / Announcements</div>
+      </div>
+      <div class="section-label">Media</div>
+      <div class="mediabin">
+        <div class="media-thumb">Loop</div><div class="media-thumb">Lights</div>
+        <div class="media-thumb">Bumper</div><div class="media-thumb">Hills</div>
+      </div>
+    </aside>
+
+    <!-- CENTER: slide grid -->
+    <main class="stage">
+      <div class="stage-head">
+        <h2>Amazing Grace</h2><span class="meta">7 slides · 16:9</span>
+        <div class="sec-chips"><span class="sec">Verse 1</span><span class="sec">Verse 2</span><span class="sec">Chorus</span><span class="sec">Verse 3</span></div>
+      </div>
+      <div class="grid" id="grid"><!-- slides injected --></div>
+    </main>
+
+    <!-- RIGHT: live / preview / controls -->
+    <aside class="preview">
+      <div class="mon live">
+        <div class="cap"><span class="dot"></span> Live</div>
+        <div class="screen bg1" id="liveScreen">
+          <span id="liveText">Amazing grace! How sweet the sound<br>That saved a wretch like me!</span>
+          <div class="blackout" id="blackout">— BLACK —</div>
+        </div>
+      </div>
+      <div class="mon">
+        <div class="cap">Preview / Next</div>
+        <div class="screen bg1" id="nextScreen"><span id="nextText">I once was lost, but now am found;<br>Was blind, but now I see.</span></div>
+      </div>
+      <div class="transport">
+        <button class="t-btn">⏮</button><button class="t-btn">▶</button>
+        <div class="scrub"><b></b></div><span style="font-size:10px;color:var(--dim)">🔊</span>
+      </div>
+      <div class="panic">
+        <button class="black" id="bBlack">Black</button>
+        <button class="clear" id="bClear">Clear</button>
+        <button class="clear">Logo</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="statusbar">
+    <span class="ok">● Autosaved</span>
+    <span>Slide <b id="pos">1</b> / 7</span>
+    <span>Transition: Fade 0.3s</span>
+    <span style="margin-left:auto">Navigate: <span class="kbd">← →</span> <span class="kbd">Space</span> · Panic: <span class="kbd">B</span></span>
+  </div>
+</div>
+
+<script>
+const slides=[
+ {lbl:"Verse 1",bg:"bg1",t:"Amazing grace! How sweet the sound<br>That saved a wretch like me!"},
+ {lbl:"Verse 1",bg:"bg1",t:"I once was lost, but now am found;<br>Was blind, but now I see."},
+ {lbl:"Verse 2",bg:"bg1",t:"’Twas grace that taught my heart to fear,<br>And grace my fears relieved;"},
+ {lbl:"Verse 2",bg:"bg1",t:"How precious did that grace appear<br>The hour I first believed."},
+ {lbl:"Chorus",bg:"bg2",t:"My chains are gone, I’ve been set free<br>My God, my Savior has ransomed me"},
+ {lbl:"Verse 3",bg:"bg1",t:"Through many dangers, toils and snares,<br>I have already come;"},
+ {lbl:"Verse 3",bg:"bg1",t:"’Tis grace hath brought me safe thus far,<br>And grace will lead me home."},
+];
+let cur=0;
+const grid=document.getElementById('grid');
+slides.forEach((s,i)=>{
+  const d=document.createElement('div');d.className='slide '+(i===0?'live':'');
+  d.innerHTML=`<div class="thumb ${s.bg}">${s.t}</div><span class="lbl">${s.lbl}</span><span class="no">${i+1}</span>`;
+  d.onclick=()=>go(i);grid.appendChild(d);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  document.querySelectorAll('.slide').forEach((el,j)=>el.classList.toggle('live',j===cur));
+  const s=slides[cur],n=slides[Math.min(cur+1,slides.length-1)];
+  const live=document.getElementById('liveScreen');live.className='screen '+s.bg;
+  document.getElementById('liveText').innerHTML=s.t;
+  document.getElementById('nextScreen').className='screen '+n.bg;
+  document.getElementById('nextText').innerHTML=n.t;
+  document.getElementById('pos').textContent=cur+1;
+  document.querySelectorAll('.slide')[cur].scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+document.addEventListener('keydown',e=>{
+  if([' ','ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();go(cur+1);}
+  if(['ArrowLeft','ArrowUp'].includes(e.key)){e.preventDefault();go(cur-1);}
+  if(e.key.toLowerCase()==='b'){toggleBlack();}
+});
+const blackout=document.getElementById('blackout');
+function toggleBlack(){const on=blackout.style.display!=='flex';blackout.style.display=on?'flex':'none';document.getElementById('bBlack').classList.toggle('on',on);}
+document.getElementById('bBlack').onclick=toggleBlack;
+document.getElementById('bClear').onclick=function(){this.classList.toggle('on');document.getElementById('liveText').style.opacity=this.classList.contains('on')?'0':'1';};
+</script>
+</body>
+</html>

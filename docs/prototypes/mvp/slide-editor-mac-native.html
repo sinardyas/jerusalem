@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jerusalem — Slide Editor (Mac Native)</title>
+<style>
+  :root{
+    --bg:#ffffff; --side:#f1f0f5; --side2:#e9e8ef; --line:#e2e2e7; --line2:#d6d6dc;
+    --desk:#b7b8bf; --txt:#1d1d1f; --dim:#86868b; --accent:#0a84ff; --live:#ff3b30; --ok:#34c759;
+    --song:#0a84ff; --bible:#bf5af2; --text:#ff9f0a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    background:#c8c9ce;color:var(--txt);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .window{width:min(1320px,100%);height:min(820px,93vh);background:var(--bg);border-radius:12px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;border:1px solid #b8b8be}
+
+  /* unified toolbar */
+  .toolbar{height:56px;background:linear-gradient(#fbfbfd,#f3f3f6);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:0 16px;flex-shrink:0}
+  .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights .r{background:#ff5f57}.lights .y{background:#febc2e}.lights .g{background:#28c840}
+  .seg{display:flex;background:var(--side2);border-radius:8px;padding:2px}
+  .seg button{border:none;background:none;font-size:12.5px;padding:6px 15px;border-radius:6px;cursor:pointer;color:var(--txt)}
+  .seg button.on{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12);font-weight:600}
+  .divider{width:1px;height:26px;background:var(--line2)}
+  .tool{display:flex;align-items:center;gap:7px;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:7px 11px;font-size:12.5px;cursor:pointer;color:#333}
+  .tool:hover{background:#f5f5f8}
+  .tool .gi{font-size:13px}
+  .icbtn{width:32px;height:30px;border:1px solid var(--line2);background:#fff;border-radius:8px;cursor:pointer;font-size:14px;color:#555}
+  .title{font-size:13px;font-weight:600;margin:0 4px}
+  .title small{color:var(--dim);font-weight:400}
+  .spacer{flex:1}
+  .selbox{display:flex;align-items:center;gap:6px;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:5px 10px;font-size:12px}
+  .primary{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:12.5px;font-weight:600;cursor:pointer}
+
+  .body{flex:1;display:grid;grid-template-columns:204px 1fr 304px;overflow:hidden}
+
+  /* slide navigator */
+  .nav{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  .nav-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px}
+  .nav-head h3{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
+  .nav-head button{border:none;background:none;color:var(--accent);font-size:18px;cursor:pointer;line-height:1}
+  .nav-list{overflow-y:auto;flex:1;padding:4px 10px 12px}
+  .nslide{display:flex;gap:9px;align-items:center;padding:6px;border-radius:9px;cursor:pointer;margin-bottom:6px}
+  .nslide:hover{background:var(--side2)}
+  .nslide.sel{background:#fff;box-shadow:0 0 0 2px var(--accent)}
+  .nslide .num{font-size:10px;color:var(--dim);width:12px;text-align:center;flex-shrink:0}
+  .nthumb{flex:1;aspect-ratio:16/9;border-radius:5px;display:flex;align-items:center;justify-content:center;text-align:center;
+    padding:4px;font-size:7px;line-height:1.3;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);overflow:hidden}
+  .nlbl{font-size:10px;color:#555;margin-top:3px;display:block;text-align:center}
+  .bg1{background:linear-gradient(135deg,#1e3a8a,#0f172a)}.bg2{background:linear-gradient(135deg,#6d28d9,#312e81)}
+  .bg3{background:linear-gradient(135deg,#047857,#064e3b)}.bgImg{background:linear-gradient(135deg,#475569,#1e293b)}
+
+  /* canvas desk */
+  .stage{background:var(--desk);
+    background-image:radial-gradient(rgba(0,0,0,.10) 1px,transparent 1px);background-size:18px 18px;
+    display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  .canvas-wrap{position:relative}
+  .canvas{width:760px;aspect-ratio:16/9;border-radius:4px;box-shadow:0 12px 40px rgba(0,0,0,.4);position:relative;overflow:hidden}
+  .safe{position:absolute;inset:5%;border:1px dashed rgba(255,255,255,.45);border-radius:2px;pointer-events:none;display:block}
+  .guide-v{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#0a84ff;opacity:0;transform:translateX(-.5px)}
+  .guide-h{position:absolute;top:66%;left:0;right:0;height:1px;background:#0a84ff;opacity:0}
+  .canvas.aligned .guide-v,.canvas.aligned .guide-h{opacity:.9}
+  /* the editable text object */
+  .obj{position:absolute;left:8%;right:8%;top:54%;padding:6px;cursor:move}
+  .obj .txt{font-size:30px;line-height:1.35;font-weight:700;color:#fff;text-align:center;outline:none;
+    text-shadow:0 2px 6px rgba(0,0,0,.7)}
+  .obj.selected{outline:1.5px solid var(--accent)}
+  .obj.selected .h{position:absolute;width:9px;height:9px;background:#fff;border:1.5px solid var(--accent);border-radius:2px}
+  .obj .h{display:none}
+  .obj.selected .h{display:block}
+  .h.tl{top:-5px;left:-5px}.h.tm{top:-5px;left:calc(50% - 4px)}.h.tr{top:-5px;right:-5px}
+  .h.ml{top:calc(50% - 4px);left:-5px}.h.mr{top:calc(50% - 4px);right:-5px}
+  .h.bl{bottom:-5px;left:-5px}.h.bm{bottom:-5px;left:calc(50% - 4px)}.h.br{bottom:-5px;right:-5px}
+  /* reference label top of slide (e.g., for bible) */
+  .zoombar{position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line2);
+    border-radius:8px;padding:5px 8px;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+  .zoombar button{border:none;background:none;cursor:pointer;font-size:14px;color:#555;width:20px}
+  .badge-tip{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);color:#fff;font-size:11px;
+    padding:4px 10px;border-radius:14px;opacity:0;transition:opacity .2s}
+  .badge-tip.show{opacity:1}
+
+  /* inspector */
+  .insp{background:var(--side);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
+  .insp .hd{padding:12px 16px 6px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .insp .hd .obj-ic{width:18px;height:18px;border-radius:5px;background:var(--text);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700}
+  .sec{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .sec h4{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+  .ctl{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;font-size:12.5px}
+  .ctl label{color:#444;min-width:54px}
+  select.in,input.in{background:#fff;border:1px solid var(--line2);border-radius:7px;padding:5px 8px;font-size:12px;color:#222;font-family:inherit}
+  select.in{flex:1}
+  .stepper{display:flex;align-items:center;border:1px solid var(--line2);border-radius:7px;overflow:hidden;background:#fff}
+  .stepper button{border:none;background:none;width:24px;height:26px;cursor:pointer;font-size:14px;color:#555}
+  .stepper input{width:38px;border:none;text-align:center;font-size:12px;font-family:inherit}
+  .btgrp{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;background:#fff}
+  .btgrp button{flex:1;border:none;background:none;padding:6px 0;cursor:pointer;font-size:13px;color:#444;border-right:1px solid var(--line2)}
+  .btgrp button:last-child,.btgrp button:last-of-type{border-right:none}
+  .btgrp button:last-child{border-right:none}
+  .btgrp button.on,.btgrp button:active{background:var(--accent);color:#fff}
+  .swatches{display:flex;gap:7px;flex-wrap:wrap}
+  .sw{width:26px;height:26px;border-radius:6px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1px var(--line2)}
+  .sw.on{box-shadow:0 0 0 2px var(--accent)}
+  .colorchip{width:24px;height:24px;border-radius:6px;border:1px solid var(--line2);cursor:pointer}
+  .toggle{width:38px;height:22px;border-radius:12px;background:#cfcfd6;position:relative;cursor:pointer;transition:background .15s}
+  .toggle.on{background:var(--ok)}
+  .toggle::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .toggle.on::after{left:18px}
+  .slider{flex:1;height:4px;background:#dcdce2;border-radius:2px;position:relative}
+  .slider b{position:absolute;top:-4px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px var(--line2),0 1px 2px rgba(0,0,0,.2);left:40%}
+  .grid4{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mini{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:4px 7px;font-size:12px}
+  .mini span{color:var(--dim)}.mini input{width:100%;border:none;font-size:12px;font-family:inherit}
+  .theme-row{display:flex;align-items:center;gap:8px}
+  .theme-prev{width:46px;aspect-ratio:16/9;border-radius:5px}
+  .linkbtn{background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0}
+  .arrange-btns{display:flex;gap:6px}
+  .arrange-btns button{flex:1;border:1px solid var(--line2);background:#fff;border-radius:7px;padding:6px 0;font-size:11px;cursor:pointer;color:#444}
+
+  .statusbar{height:27px;background:var(--side);border-top:1px solid var(--line);display:flex;align-items:center;
+    padding:0 16px;gap:18px;font-size:11px;color:var(--dim);flex-shrink:0}
+  .statusbar .ok{color:var(--ok)}
+  .statusbar .tg{cursor:pointer;display:flex;align-items:center;gap:5px}
+  .statusbar .tg.on{color:var(--accent)}
+  .chkbox{width:13px;height:13px;border-radius:3px;border:1px solid var(--dim);display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
+  .tg.on .chkbox{background:var(--accent);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="window">
+  <!-- toolbar -->
+  <div class="toolbar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="seg"><button>Show</button><button class="on">Edit</button></div>
+    <div class="divider"></div>
+    <div class="tool" id="addText"><span class="gi">T</span> Text</div>
+    <div class="tool"><span class="gi">▢</span> Image</div>
+    <div class="tool"><span class="gi">◇</span> Shape</div>
+    <div class="tool"><span class="gi">▤</span> Background</div>
+    <div class="divider"></div>
+    <button class="icbtn" title="Undo">↺</button>
+    <button class="icbtn" title="Redo">↻</button>
+    <div class="title">Amazing Grace <small>· editing</small></div>
+    <div class="spacer"></div>
+    <div class="selbox"><span style="color:var(--dim)">Aspect</span> <b>16:9</b> ▾</div>
+    <button class="primary">Done</button>
+  </div>
+
+  <div class="body">
+    <!-- slide navigator -->
+    <aside class="nav">
+      <div class="nav-head"><h3>Slides</h3><button title="Add slide">+</button></div>
+      <div class="nav-list" id="navList"></div>
+    </aside>
+
+    <!-- canvas -->
+    <section class="stage">
+      <div class="canvas-wrap">
+        <div class="canvas aligned bg1" id="canvas">
+          <div class="safe" id="safe"></div>
+          <div class="guide-v"></div><div class="guide-h"></div>
+          <div class="obj selected" id="obj">
+            <div class="txt" id="txt" contenteditable="true">Amazing grace! How sweet the sound<br>That saved a wretch like me!</div>
+            <span class="h tl"></span><span class="h tm"></span><span class="h tr"></span>
+            <span class="h ml"></span><span class="h mr"></span>
+            <span class="h bl"></span><span class="h bm"></span><span class="h br"></span>
+          </div>
+          <div class="badge-tip" id="tip">Snapped to center</div>
+        </div>
+        <div class="zoombar"><button id="zout">−</button><span id="zlvl">100%</span><button id="zin">+</button></div>
+      </div>
+    </section>
+
+    <!-- inspector -->
+    <aside class="insp">
+      <div class="hd"><span class="obj-ic">T</span> Text Box</div>
+
+      <div class="sec">
+        <h4>Font</h4>
+        <div class="ctl"><label>Family</label>
+          <select class="in" id="fontFam">
+            <option>SF Pro Display</option><option selected>Avenir Next</option>
+            <option>Helvetica Neue</option><option>Georgia</option><option>Montserrat</option>
+          </select></div>
+        <div class="ctl"><label>Size</label>
+          <div class="stepper"><button id="szm">−</button><input id="sz" value="30"><button id="szp">+</button></div>
+          <span class="colorchip" id="fontColor" style="background:#ffffff" title="Text color"></span>
+        </div>
+        <div class="ctl"><label>Style</label>
+          <div class="btgrp" style="flex:1">
+            <button id="bBold" class="on" style="font-weight:800">B</button>
+            <button id="bItal" style="font-style:italic">I</button>
+            <button id="bUnd" style="text-decoration:underline">U</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h4>Paragraph</h4>
+        <div class="ctl"><label>Align</label>
+          <div class="btgrp" style="flex:1">
+            <button data-al="left">⯇</button><button data-al="center" class="on">≡</button>
+            <button data-al="right">⯈</button><button data-al="justify">▤</button>
+          </div>
+        </div>
+        <div class="ctl"><label>Line</label><div class="slider"><b style="left:55%"></b></div><span style="color:var(--dim)">1.35</span></div>
+        <div class="ctl"><label>Letter</label><div class="slider"><b style="left:30%"></b></div><span style="color:var(--dim)">0</span></div>
+        <div class="ctl"><label>Auto-fit</label><span class="toggle on" id="autofit"></span></div>
+      </div>
+
+      <div class="sec">
+        <h4>Stroke &amp; Shadow</h4>
+        <div class="ctl"><label>Outline</label><span class="toggle" id="strokeT"></span><span class="colorchip" style="background:#000"></span></div>
+        <div class="ctl"><label>Width</label><div class="slider"><b style="left:20%"></b></div><span style="color:var(--dim)">2px</span></div>
+        <div class="ctl"><label>Shadow</label><span class="toggle on" id="shadowT"></span><span class="colorchip" style="background:#000"></span></div>
+        <div class="ctl"><label>Blur</label><div class="slider"><b style="left:35%"></b></div><span style="color:var(--dim)">6px</span></div>
+      </div>
+
+      <div class="sec">
+        <h4>Background <span style="color:var(--dim);font-weight:400;text-transform:none">(slide)</span></h4>
+        <div class="btgrp" style="margin-bottom:10px">
+          <button class="on" data-bg="color">Color</button><button data-bg="grad">Gradient</button>
+          <button data-bg="image">Image</button><button data-bg="video">Video</button>
+        </div>
+        <div class="swatches">
+          <span class="sw on" data-c="bg1" style="background:linear-gradient(135deg,#1e3a8a,#0f172a)"></span>
+          <span class="sw" data-c="bg2" style="background:linear-gradient(135deg,#6d28d9,#312e81)"></span>
+          <span class="sw" data-c="bg3" style="background:linear-gradient(135deg,#047857,#064e3b)"></span>
+          <span class="sw" data-c="bgImg" style="background:linear-gradient(135deg,#475569,#1e293b)"></span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h4>Arrange</h4>
+        <div class="grid4" style="margin-bottom:9px">
+          <div class="mini"><span>X</span><input value="153"></div>
+          <div class="mini"><span>Y</span><input value="430"></div>
+          <div class="mini"><span>W</span><input value="1454"></div>
+          <div class="mini"><span>H</span><input value="240"></div>
+        </div>
+        <div class="arrange-btns">
+          <button>Front</button><button>Forward</button><button>Back</button>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h4>Theme</h4>
+        <div class="theme-row">
+          <div class="theme-prev bg1"></div>
+          <div style="flex:1"><div style="font-size:12.5px">Default Dark</div><button class="linkbtn">Change…</button></div>
+        </div>
+        <button class="linkbtn" style="margin-top:10px">↧ Set as default style for new slides</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="statusbar">
+    <span class="ok">● Autosaved</span>
+    <span>16:9 · 1920 × 1080</span>
+    <span class="tg on" id="tgSnap"><span class="chkbox">✓</span> Snap to grid</span>
+    <span class="tg on" id="tgGuide"><span class="chkbox">✓</span> Guides</span>
+    <span class="tg on" id="tgSafe"><span class="chkbox">✓</span> Safe area</span>
+    <span style="margin-left:auto">Zoom <b id="zlvl2">100%</b></span>
+  </div>
+</div>
+
+<script>
+const slides=[
+ {lbl:"Verse 1",bg:"bg1",t:"Amazing grace! How sweet the sound<br>That saved a wretch like me!"},
+ {lbl:"Verse 1 (cont.)",bg:"bg1",t:"I once was lost, but now am found;<br>Was blind, but now I see."},
+ {lbl:"Verse 2",bg:"bg1",t:"’Twas grace that taught my heart to fear,<br>And grace my fears relieved;"},
+ {lbl:"Chorus",bg:"bg2",t:"My chains are gone, I’ve been set free<br>My God, my Savior has ransomed me"},
+ {lbl:"Verse 3",bg:"bg1",t:"Through many dangers, toils and snares,<br>I have already come;"},
+];
+let cur=0;
+const navList=document.getElementById('navList'),canvas=document.getElementById('canvas'),txt=document.getElementById('txt');
+slides.forEach((s,i)=>{
+  const d=document.createElement('div');d.className='nslide '+(i===0?'sel':'');
+  d.innerHTML=`<span class="num">${i+1}</span><div style="flex:1"><div class="nthumb ${s.bg}">${s.t}</div><span class="nlbl">${s.lbl}</span></div>`;
+  d.onclick=()=>load(i);navList.appendChild(d);
+});
+function load(i){
+  cur=i;document.querySelectorAll('.nslide').forEach((el,j)=>el.classList.toggle('sel',j===i));
+  const s=slides[i];txt.innerHTML=s.t;
+  canvas.className='canvas aligned '+s.bg;
+  document.querySelectorAll('.sw').forEach(sw=>sw.classList.toggle('on',sw.dataset.c===s.bg));
+  flash('Slide loaded · '+s.lbl);
+}
+// alignment buttons
+document.querySelectorAll('[data-al]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-al]').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  txt.style.textAlign=b.dataset.al;
+});
+// style toggles
+const tog=(btn,fn)=>btn.onclick=()=>{btn.classList.toggle('on');fn(btn.classList.contains('on'));};
+tog(document.getElementById('bBold'),on=>txt.style.fontWeight=on?'800':'400');
+tog(document.getElementById('bItal'),on=>txt.style.fontStyle=on?'italic':'normal');
+tog(document.getElementById('bUnd'),on=>txt.style.textDecoration=on?'underline':'none');
+tog(document.getElementById('shadowT'),on=>txt.style.textShadow=on?'0 2px 6px rgba(0,0,0,.7)':'none');
+tog(document.getElementById('strokeT'),on=>{txt.style.webkitTextStroke=on?'2px #000':'0';});
+document.getElementById('autofit').onclick=function(){this.classList.toggle('on');};
+// font size
+let sz=30;const szEl=document.getElementById('sz');
+const setSz=v=>{sz=Math.max(8,v);szEl.value=sz;txt.style.fontSize=sz+'px';};
+document.getElementById('szp').onclick=()=>setSz(sz+2);
+document.getElementById('szm').onclick=()=>setSz(sz-2);
+szEl.onchange=()=>setSz(parseInt(szEl.value)||30);
+document.getElementById('fontFam').onchange=function(){txt.style.fontFamily=this.value;};
+// font color cycle
+const colors=['#ffffff','#ffd166','#90e0ef','#000000'];let ci=0;
+document.getElementById('fontColor').onclick=function(){ci=(ci+1)%colors.length;this.style.background=colors[ci];txt.style.color=colors[ci];};
+// background swatches + type
+document.querySelectorAll('.sw').forEach(sw=>sw.onclick=()=>{
+  document.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));sw.classList.add('on');
+  canvas.className='canvas aligned '+sw.dataset.c;
+});
+document.querySelectorAll('[data-bg]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-bg]').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  if(b.dataset.bg==='video')flash('Motion background — pick a video clip');
+});
+// status toggles
+const stog=(id,fn)=>{const el=document.getElementById(id);el.onclick=()=>{el.classList.toggle('on');fn(el.classList.contains('on'));};};
+stog('tgSafe',on=>document.getElementById('safe').style.display=on?'block':'none');
+stog('tgGuide',on=>canvas.classList.toggle('aligned',on));
+stog('tgSnap',()=>{});
+// zoom
+let z=100;const setZ=v=>{z=Math.max(40,Math.min(200,v));document.getElementById('zlvl').textContent=z+'%';document.getElementById('zlvl2').textContent=z+'%';
+  document.getElementById('canvas').style.transform='scale('+(z/100)+')';};
+document.getElementById('zin').onclick=()=>setZ(z+10);document.getElementById('zout').onclick=()=>setZ(z-10);
+// tip flash + fake snap on drag
+function flash(m){const t=document.getElementById('tip');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1100);}
+document.getElementById('obj').addEventListener('mousedown',()=>flash('Snapped to center'));
+</script>
+</body>
+</html>

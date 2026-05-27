@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jerusalem — MVP Layout Prototypes</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    background:#0e0f13;color:#e9e9ee;padding:48px 24px;line-height:1.55}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;margin-bottom:4px}
+  .sub{color:#8c8c96;margin-bottom:8px}
+  .note{color:#a9a9b3;font-size:13.5px;background:#16171d;border:1px solid #26272f;border-radius:10px;padding:14px 16px;margin:18px 0 28px}
+  .note b{color:#e9e9ee}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .card{background:#16171d;border:1px solid #26272f;border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;
+    display:flex;flex-direction:column;transition:border-color .15s,transform .15s}
+  .card:hover{border-color:#3b82f6;transform:translateY(-3px)}
+  .swatch{height:120px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;letter-spacing:.03em;position:relative}
+  .swatch span{position:absolute;bottom:10px;left:14px;font-size:11px;font-weight:500;opacity:.85}
+  .sa{background:#1b1b1d;color:#9aa}.sb{background:linear-gradient(135deg,#10141c,#222c3d);color:#2dd4bf}.sc{background:#f1f0f5;color:#1d1d1f}
+  .card .c-body{padding:16px}
+  .card h3{font-size:16px;margin-bottom:6px}
+  .card p{font-size:13px;color:#a9a9b3}
+  .tag{display:inline-block;font-size:10.5px;color:#bdbdc6;background:#22232b;border:1px solid #303139;border-radius:20px;padding:2px 9px;margin:8px 6px 0 0}
+  table{width:100%;border-collapse:collapse;margin-top:34px;font-size:13.5px}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #26272f;vertical-align:top}
+  th{color:#8c8c96;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  td b{color:#fff}
+  .legend{margin-top:30px;font-size:13px;color:#a9a9b3}
+  .legend code{background:#22232b;border:1px solid #303139;border-radius:5px;padding:1px 7px;color:#dcdce2}
+  a.inline{color:#5e9bff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Jerusalem — MVP Layout Prototypes</h1>
+  <div class="sub">Three layout directions for the <b>operator (live control) window</b> · macOS · from <a class="inline" href="../../MVP.md">docs/MVP.md</a></div>
+
+  <div class="note">
+    Prototypes <b>A / B / C</b> are three layouts of the <b>same screen</b> — the operator (live control) window — with the
+    <b>same MVP elements</b> (playlists/library, slide grid, live + next preview, video transport, panic keys). Pick one
+    direction. The <b>Slide Editor</b> below is a <i>separate screen</i>, shown in the chosen Mac-native style.
+    Everything is interactive: click a slide, press <b>← → / Space</b> to navigate, <b>B</b> for black; in the editor,
+    edit text on the canvas and try the inspector controls.
+  </div>
+
+  <h2 style="font-size:14px;color:#8c8c96;margin:8px 0 12px;text-transform:uppercase;letter-spacing:.05em">Operator window · 3 layout options</h2>
+
+  <div class="cards">
+    <a class="card" href="prototype-a-classic-console.html">
+      <div class="swatch sa">CONSOLE<span>dark · dense · proven</span></div>
+      <div class="c-body">
+        <h3>A · Classic Console</h3>
+        <p>Familiar three-column production console: playlists left, slide grid center, stacked Live/Next + transport + panic right. Information-dense for an operator who lives in it.</p>
+        <span class="tag">ProPresenter-like</span><span class="tag">Power users</span><span class="tag">Dark</span>
+      </div>
+    </a>
+    <a class="card" href="prototype-b-stage-focus.html">
+      <div class="swatch sb">STAGE FOCUS<span>output-forward · calm</span></div>
+      <div class="c-body">
+        <h3>B · Stage Focus</h3>
+        <p>Output-centric: two large Live/Next monitors dominate the top, a slide filmstrip below, slim playlist rail, and one big control bar. Keeps eyes on what the congregation sees.</p>
+        <span class="tag">Volunteer-friendly</span><span class="tag">Big preview</span><span class="tag">Slate</span>
+      </div>
+    </a>
+    <a class="card" href="prototype-c-mac-native.html">
+      <div class="swatch sc">MAC NATIVE<span>light · minimal · HIG</span></div>
+      <div class="c-body">
+        <h3>C · Mac Native Minimal</h3>
+        <p>Clean macOS app: unified toolbar with Show/Edit segments, source-list sidebar, roomy slide grid, and a contextual inspector (live preview, slide + video settings, panic) on the right.</p>
+        <span class="tag">Modern</span><span class="tag">Finder/Keynote feel</span><span class="tag">Light</span>
+      </div>
+    </a>
+  </div>
+
+  <h2 style="font-size:14px;color:#8c8c96;margin:34px 0 12px;text-transform:uppercase;letter-spacing:.05em">Slide editor · critical screen</h2>
+  <div class="cards" style="grid-template-columns:1fr">
+    <a class="card" href="slide-editor-mac-native.html" style="flex-direction:row">
+      <div class="swatch sc" style="width:220px;flex-shrink:0">EDITOR<span>canvas · inspector</span></div>
+      <div class="c-body">
+        <h3>Slide Editor — Mac Native</h3>
+        <p>The WYSIWYG design surface (§3.2): slide navigator (left), editing canvas with selection handles, alignment
+        guides &amp; safe-area overlay (center), and a properties inspector (right) covering font, paragraph,
+        stroke/shadow, background (color/gradient/image/video), arrange, and theme + "set as default style".
+        Interactive: click the canvas text to edit it, change alignment/size/style, swap the background, toggle guides.</p>
+        <span class="tag">Keynote/Pixelmator feel</span><span class="tag">WYSIWYG</span><span class="tag">Light</span>
+      </div>
+    </a>
+  </div>
+
+  <h2 style="font-size:14px;color:#8c8c96;margin:38px 0 4px;text-transform:uppercase;letter-spacing:.05em">Operator layout comparison</h2>
+  <table>
+    <tr><th>Dimension</th><th>A · Classic Console</th><th>B · Stage Focus</th><th>C · Mac Native</th></tr>
+    <tr><td><b>Primary emphasis</b></td><td>Slide grid + dense controls</td><td>Live/Next output monitors</td><td>Content + contextual inspector</td></tr>
+    <tr><td><b>Theme</b></td><td>Dark, near-black</td><td>Dark slate</td><td>Light, system gray</td></tr>
+    <tr><td><b>Best for</b></td><td>Experienced operators</td><td>Volunteers; output confidence</td><td>"Not bloated, modern Mac" feel</td></tr>
+    <tr><td><b>Preview size</b></td><td>Small (right rail)</td><td>Large (top)</td><td>Small (inspector)</td></tr>
+    <tr><td><b>Learning curve</b></td><td>Higher (more on screen)</td><td>Low</td><td>Low–medium</td></tr>
+    <tr><td><b>Editor access</b></td><td>Toolbar button</td><td>(separate mode)</td><td>Show/Edit toolbar segment</td></tr>
+    <tr><td><b>Fits positioning?</b></td><td>Proven, risks "ProPresenter clone"</td><td>Reinforces reliability story</td><td>Reinforces "native &amp; clean" story</td></tr>
+  </table>
+
+  <div class="legend">
+    <p style="margin-top:10px">Content-type color chips used throughout:
+      <code style="color:#5e9bff">S Song</code>
+      <code style="color:#c084fc">B Bible</code>
+      <code style="color:#fbbf24">T Text</code>
+      <code style="color:#fb7185">V Video</code>
+      <code style="color:#30d158">I Image</code>
+    </p>
+    <p style="margin-top:10px;color:#8c8c96">Sample content (Amazing Grace, Sunday AM playlist) is identical across all three to make the layout comparison fair. These are static front-end mockups for layout evaluation only — no real app logic.</p>
+  </div>
+</div>
+</body>
+</html>

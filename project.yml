@@ -1,0 +1,53 @@
+name: Jerusalem
+options:
+  bundleIdPrefix: id.soechi
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Jerusalem:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Jerusalem
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: id.soechi.Jerusalem
+        PRODUCT_NAME: Jerusalem
+        GENERATE_INFOPLIST_FILE: "YES"
+        ENABLE_PREVIEWS: "YES"
+        ENABLE_HARDENED_RUNTIME: "YES"
+        COMBINE_HIDPI_IMAGES: "YES"
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+  JerusalemTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/JerusalemTests
+    dependencies:
+      - target: Jerusalem
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: id.soechi.JerusalemTests
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  Jerusalem:
+    build:
+      targets:
+        Jerusalem: all
+        JerusalemTests: [test, run]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - JerusalemTests

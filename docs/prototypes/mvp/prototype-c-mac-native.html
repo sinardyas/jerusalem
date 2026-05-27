@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jerusalem — Prototype C · Mac Native Minimal</title>
+<style>
+  :root{
+    --bg:#ffffff; --side:#f1f0f5; --side2:#e9e8ef; --line:#e2e2e7; --line2:#d6d6dc;
+    --txt:#1d1d1f; --dim:#86868b; --accent:#0a84ff; --live:#ff3b30; --ok:#34c759;
+    --song:#0a84ff; --bible:#bf5af2; --text:#ff9f0a; --video:#ff375f; --image:#30d158;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    background:#c8c9ce;color:var(--txt);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .window{width:min(1280px,100%);height:min(800px,92vh);background:var(--bg);border-radius:12px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;border:1px solid #b8b8be}
+  /* unified toolbar (titlebar + toolbar combined, mac style) */
+  .toolbar{height:54px;background:linear-gradient(#fbfbfd,#f3f3f6);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px;padding:0 16px;flex-shrink:0}
+  .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights .r{background:#ff5f57}.lights .y{background:#febc2e}.lights .g{background:#28c840}
+  .seg{display:flex;background:var(--side2);border-radius:8px;padding:2px}
+  .seg button{border:none;background:none;font-size:12.5px;padding:6px 16px;border-radius:6px;cursor:pointer;color:var(--txt)}
+  .seg button.on{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12);font-weight:600}
+  .title{font-size:13px;font-weight:600}
+  .title small{color:var(--dim);font-weight:400}
+  .search{margin-left:auto;width:230px;background:#fff;border:1px solid var(--line2);border-radius:8px;padding:7px 12px;font-size:12.5px;color:var(--dim);display:flex;gap:8px;align-items:center}
+  .t-btn{width:34px;height:30px;border-radius:8px;border:1px solid var(--line2);background:#fff;cursor:pointer;font-size:14px;color:#444}
+  .out-pill{font-size:11px;color:var(--live);display:flex;align-items:center;gap:6px;font-weight:600}
+  .out-pill .d{width:8px;height:8px;border-radius:50%;background:var(--live)}
+
+  .body{flex:1;display:grid;grid-template-columns:228px 1fr 292px;overflow:hidden}
+
+  /* sidebar source list */
+  .sidebar{background:var(--side);border-right:1px solid var(--line);overflow-y:auto;padding:10px 0}
+  .grp{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--dim);padding:14px 18px 6px}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 16px;margin:0 8px;border-radius:8px;font-size:13px;cursor:pointer;color:#2a2a2e}
+  .row:hover{background:var(--side2)}
+  .row.sel{background:var(--accent);color:#fff}
+  .row .ic{width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0}
+  .row.sel .ic{background:rgba(255,255,255,.25)}
+  .row .ct{margin-left:auto;font-size:11px;color:var(--dim)}
+  .row.sel .ct{color:rgba(255,255,255,.8)}
+
+  /* main slide grid */
+  .main{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+  .main-head{padding:16px 22px 10px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px}
+  .main-head h1{font-size:19px;font-weight:600}
+  .main-head .meta{font-size:12px;color:var(--dim)}
+  .main-head .secs{margin-left:auto;display:flex;gap:6px}
+  .secs span{font-size:10.5px;padding:3px 10px;border-radius:20px;background:var(--side2);color:#6a6a70}
+  .grid{flex:1;overflow-y:auto;padding:22px;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;align-content:start}
+  .slide{border-radius:10px;overflow:hidden;cursor:pointer;background:#000;position:relative;border:3px solid transparent;transition:transform .12s}
+  .slide:hover{transform:translateY(-2px)}
+  .slide .th{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;
+    font-size:11.5px;line-height:1.45;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .slide .cap{padding:7px 10px;background:#fff;display:flex;justify-content:space-between;font-size:11px;color:var(--dim)}
+  .slide.live{border-color:var(--live)}
+  .slide.live .cap{background:var(--live);color:#fff}
+  .bg1{background:linear-gradient(135deg,#1e3a8a,#0f172a)}.bg2{background:linear-gradient(135deg,#6d28d9,#312e81)}
+  .bg3{background:linear-gradient(135deg,#047857,#064e3b)}
+
+  /* inspector */
+  .inspector{background:var(--side);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
+  .insp-sec{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .insp-sec h4{font-size:11px;font-weight:600;letter-spacing:.03em;color:var(--dim);text-transform:uppercase;margin-bottom:10px}
+  .liveprev{border-radius:9px;overflow:hidden;border:1px solid var(--line2);position:relative}
+  .liveprev .scr{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;
+    font-size:12px;line-height:1.45;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);position:relative}
+  .liveprev .scr .blk{position:absolute;inset:0;background:#000;display:none;align-items:center;justify-content:center;color:#555;font-size:10px}
+  .liveprev .tag{position:absolute;top:8px;left:8px;font-size:9px;font-weight:700;color:#fff;background:var(--live);padding:2px 7px;border-radius:5px;letter-spacing:.05em}
+  .field{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;font-size:12.5px}
+  .field label{color:#444}
+  .field .val{color:var(--dim)}
+  .select{background:#fff;border:1px solid var(--line2);border-radius:7px;padding:5px 9px;font-size:12px}
+  .vid-row{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line2);border-radius:8px;padding:7px 9px;margin-top:4px}
+  .vid-row .p{width:28px;height:26px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer}
+  .vid-row .sc{flex:1;height:4px;background:#e0e0e6;border-radius:2px;position:relative}.vid-row .sc b{position:absolute;inset:0 60% 0 0;background:var(--accent);border-radius:2px}
+  .toggle{width:38px;height:22px;border-radius:12px;background:var(--ok);position:relative;cursor:pointer}
+  .toggle::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;right:2px;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .panic{margin-top:auto;padding:14px 16px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid var(--line)}
+  .panic button{padding:11px 0;border-radius:9px;border:1px solid var(--line2);background:#fff;font-size:12px;font-weight:600;cursor:pointer;color:#2a2a2e}
+  .panic button.on{background:var(--live);border-color:var(--live);color:#fff}
+
+  .statusbar{height:26px;background:var(--side);border-top:1px solid var(--line);display:flex;align-items:center;padding:0 16px;gap:16px;font-size:11px;color:var(--dim);flex-shrink:0}
+  .statusbar .ok{color:var(--ok)}
+  .kbd{background:#fff;border:1px solid var(--line2);border-radius:4px;padding:1px 6px;font-size:10px;color:#555}
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="toolbar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="seg"><button class="on">Show</button><button>Edit</button></div>
+    <div class="title">Amazing Grace <small>&nbsp;· Sunday AM</small></div>
+    <div class="search">⌕ Search &amp; go live…</div>
+    <button class="t-btn">+</button>
+    <div class="out-pill"><span class="d"></span> Display 2</div>
+  </div>
+
+  <div class="body">
+    <!-- source list -->
+    <aside class="sidebar">
+      <div class="grp">Playlists</div>
+      <div class="row"><span class="ic" style="background:var(--accent)">▦</span> Sunday AM <span class="ct">7</span></div>
+      <div class="row"><span class="ic" style="background:var(--accent)">▦</span> Christmas Eve <span class="ct">12</span></div>
+      <div class="row"><span class="ic" style="background:var(--accent)">▦</span> Youth Night <span class="ct">9</span></div>
+      <div class="grp">Sunday AM · Items</div>
+      <div class="row"><span class="ic" style="background:var(--video)">V</span> Welcome Loop</div>
+      <div class="row sel"><span class="ic" style="background:var(--song)">S</span> Amazing Grace <span class="ct">7</span></div>
+      <div class="row"><span class="ic" style="background:var(--song)">S</span> 10,000 Reasons</div>
+      <div class="row"><span class="ic" style="background:var(--bible)">B</span> John 3:16–18</div>
+      <div class="row"><span class="ic" style="background:var(--text)">T</span> Living Hope</div>
+      <div class="row"><span class="ic" style="background:var(--song)">S</span> Build My Life</div>
+      <div class="grp">Library</div>
+      <div class="row"><span class="ic" style="background:var(--song)">S</span> Songs <span class="ct">142</span></div>
+      <div class="row"><span class="ic" style="background:var(--bible)">B</span> Bibles <span class="ct">3</span></div>
+      <div class="row"><span class="ic" style="background:var(--image)">I</span> Media <span class="ct">38</span></div>
+    </aside>
+
+    <!-- slide grid -->
+    <main class="main">
+      <div class="main-head">
+        <h1>Amazing Grace</h1><span class="meta">7 slides · 16:9</span>
+        <div class="secs"><span>Verse 1</span><span>Verse 2</span><span>Chorus</span><span>Verse 3</span></div>
+      </div>
+      <div class="grid" id="grid"></div>
+    </main>
+
+    <!-- inspector -->
+    <aside class="inspector">
+      <div class="insp-sec">
+        <h4>Live Output</h4>
+        <div class="liveprev">
+          <span class="tag">LIVE</span>
+          <div class="scr bg1" id="liveScr"><span id="liveText">Amazing grace! How sweet the sound<br>That saved a wretch like me!</span><div class="blk" id="blk">— BLACK —</div></div>
+        </div>
+        <div class="field" style="margin-top:10px"><label>Next</label><span class="val" id="nextLbl">Verse 1 (cont.)</span></div>
+      </div>
+
+      <div class="insp-sec">
+        <h4>Slide</h4>
+        <div class="field"><label>Theme</label><span class="select">Default Dark</span></div>
+        <div class="field"><label>Transition</label><span class="select">Fade · 0.3s</span></div>
+        <div class="field"><label>Background</label><span class="val">Gradient (blue)</span></div>
+      </div>
+
+      <div class="insp-sec">
+        <h4>Video / Motion BG</h4>
+        <div class="field"><label>Loop</label><span class="toggle"></span></div>
+        <div class="field"><label>Audio</label><span class="val">Muted</span></div>
+        <div class="field"><label>On end</label><span class="select">Hold last frame</span></div>
+        <div class="vid-row"><button class="p">▶</button><div class="sc"><b></b></div><span style="font-size:10px;color:var(--dim)">2:10</span></div>
+      </div>
+
+      <div class="panic">
+        <button id="bBlack">Black</button>
+        <button id="bClear">Clear</button>
+        <button>Logo</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="statusbar">
+    <span class="ok">● Autosaved</span>
+    <span>Slide <b id="pos">1</b> / 7</span>
+    <span style="margin-left:auto">Navigate <span class="kbd">← →</span> <span class="kbd">Space</span> · Black <span class="kbd">B</span></span>
+  </div>
+</div>
+
+<script>
+const slides=[
+ {lbl:"Verse 1",bg:"bg1",t:"Amazing grace! How sweet the sound<br>That saved a wretch like me!"},
+ {lbl:"Verse 1 (cont.)",bg:"bg1",t:"I once was lost, but now am found;<br>Was blind, but now I see."},
+ {lbl:"Verse 2",bg:"bg1",t:"’Twas grace that taught my heart to fear,<br>And grace my fears relieved;"},
+ {lbl:"Verse 2 (cont.)",bg:"bg1",t:"How precious did that grace appear<br>The hour I first believed."},
+ {lbl:"Chorus",bg:"bg2",t:"My chains are gone, I’ve been set free<br>My God, my Savior has ransomed me"},
+ {lbl:"Verse 3",bg:"bg1",t:"Through many dangers, toils and snares,<br>I have already come;"},
+ {lbl:"Verse 3 (cont.)",bg:"bg1",t:"’Tis grace hath brought me safe thus far,<br>And grace will lead me home."},
+];
+let cur=0;const grid=document.getElementById('grid');
+slides.forEach((s,i)=>{const d=document.createElement('div');d.className='slide '+(i===0?'live':'');
+  d.innerHTML=`<div class="th ${s.bg}">${s.t}</div><div class="cap"><span>${s.lbl}</span><span>${i+1}</span></div>`;
+  d.onclick=()=>go(i);grid.appendChild(d);});
+function go(i){cur=Math.max(0,Math.min(slides.length-1,i));
+  document.querySelectorAll('.slide').forEach((el,j)=>el.classList.toggle('live',j===cur));
+  const s=slides[cur],n=slides[Math.min(cur+1,slides.length-1)];
+  document.getElementById('liveScr').className='scr '+s.bg;document.getElementById('liveText').innerHTML=s.t;
+  document.getElementById('nextLbl').textContent=n.lbl;document.getElementById('pos').textContent=cur+1;
+  document.querySelectorAll('.slide')[cur].scrollIntoView({block:'nearest',behavior:'smooth'});}
+document.addEventListener('keydown',e=>{
+  if([' ','ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();go(cur+1);}
+  if(['ArrowLeft','ArrowUp'].includes(e.key)){e.preventDefault();go(cur-1);}
+  if(e.key.toLowerCase()==='b')toggleBlack();});
+const blk=document.getElementById('blk');
+function toggleBlack(){const on=blk.style.display!=='flex';blk.style.display=on?'flex':'none';document.getElementById('bBlack').classList.toggle('on',on);}
+document.getElementById('bBlack').onclick=toggleBlack;
+document.getElementById('bClear').onclick=function(){this.classList.toggle('on');document.getElementById('liveText').style.opacity=this.classList.contains('on')?'0':'1';};
+</script>
+</body>
+</html>

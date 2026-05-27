@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jerusalem — Prototype B · Stage Focus</title>
+<style>
+  :root{
+    --bg:#10141c; --slate:#1a2230; --slate2:#222c3d; --line:#2e3a4f;
+    --txt:#eef2f8; --dim:#8d9bb3; --accent:#2dd4bf; --live:#fb7185; --ok:#34d399;
+    --song:#60a5fa; --bible:#c084fc; --text:#fbbf24; --video:#fb7185; --image:#34d399;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    background:#05080d;color:var(--txt);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .window{width:min(1280px,100%);height:min(800px,92vh);background:var(--bg);border-radius:12px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column;border:1px solid #000}
+  .titlebar{height:38px;background:#161d29;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid #000;flex-shrink:0}
+  .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights .r{background:#ff5f57}.lights .y{background:#febc2e}.lights .g{background:#28c840}
+  .title{flex:1;text-align:center;font-size:13px;font-weight:600;color:#cdd6e4}
+  .out{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px}
+  .out .dot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live)}
+
+  .body{flex:1;display:grid;grid-template-columns:200px 1fr;overflow:hidden}
+
+  /* slim playlist rail */
+  .rail{background:#141b26;border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  .rail h3{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);padding:14px 14px 8px}
+  .rail .pl{overflow-y:auto;flex:1}
+  .r-item{display:flex;align-items:center;gap:9px;padding:10px 14px;font-size:12.5px;cursor:pointer;border-left:3px solid transparent;color:#cdd6e4}
+  .r-item:hover{background:var(--slate)}
+  .r-item.sel{background:var(--slate2);border-left-color:var(--accent);color:#fff}
+  .dot-i{width:22px;height:22px;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#0b0f16}
+  .rail .add{margin:10px;padding:8px;text-align:center;border:1px dashed var(--line);border-radius:8px;color:var(--dim);font-size:12px;cursor:pointer}
+
+  /* main column */
+  .main{display:flex;flex-direction:column;overflow:hidden;padding:16px;gap:14px}
+
+  /* two big monitors */
+  .monitors{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;flex-shrink:0}
+  .mon{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line);position:relative;display:flex;flex-direction:column}
+  .mon .tag{position:absolute;top:10px;left:12px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    background:rgba(0,0,0,.5);padding:4px 9px;border-radius:6px;display:flex;align-items:center;gap:6px;z-index:2}
+  .mon.live .tag{color:#fff}.mon.live .tag .d{width:7px;height:7px;border-radius:50%;background:var(--live)}
+  .mon.next .tag{color:var(--dim)}
+  .screen{flex:1;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:22px;
+    font-size:clamp(15px,2vw,22px);line-height:1.5;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.85);position:relative}
+  .screen .blk{position:absolute;inset:0;background:#000;display:none;align-items:center;justify-content:center;color:#3a3a3a;font-size:13px}
+  .bg1{background:linear-gradient(135deg,#1e3a8a,#0b1220)}.bg2{background:linear-gradient(135deg,#4c1d95,#1e1b4b)}
+  .bg3{background:linear-gradient(135deg,#065f46,#022c22)}
+  .mon .undertag{position:absolute;bottom:10px;left:12px;font-size:10px;color:rgba(255,255,255,.55);background:rgba(0,0,0,.4);padding:3px 8px;border-radius:5px}
+
+  /* filmstrip */
+  .strip-wrap{flex:1;background:#141b26;border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  .strip-head{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)}
+  .strip-head h2{font-size:14px}.strip-head .meta{font-size:11px;color:var(--dim)}
+  .strip-head .secs{margin-left:auto;display:flex;gap:6px}
+  .secs span{font-size:10px;padding:3px 9px;border-radius:20px;background:var(--slate2);color:var(--dim)}
+  .strip{flex:1;display:flex;gap:12px;overflow-x:auto;padding:14px 16px;align-items:center}
+  .card{flex:0 0 200px;border-radius:9px;overflow:hidden;border:2px solid transparent;cursor:pointer;background:#000;position:relative}
+  .card .th{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;
+    font-size:11px;line-height:1.4;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .card .l{position:absolute;top:6px;left:6px;font-size:9px;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:4px}
+  .card .n{position:absolute;bottom:5px;right:7px;font-size:10px;color:var(--dim)}
+  .card:hover{border-color:#3a4a63}
+  .card.live{border-color:var(--live);box-shadow:0 0 14px rgba(251,113,133,.4)}
+
+  /* bottom control bar */
+  .bar{height:60px;background:#141b26;border-top:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 18px;flex-shrink:0}
+  .nav{display:flex;gap:8px}
+  .nav button{width:46px;height:38px;border-radius:9px;background:var(--slate2);border:1px solid var(--line);color:#fff;font-size:15px;cursor:pointer}
+  .nav button:hover{background:#2c3850}
+  .transport{display:flex;align-items:center;gap:10px;background:var(--slate);border:1px solid var(--line);border-radius:9px;padding:8px 12px;min-width:280px}
+  .transport .p{width:32px;height:30px;border-radius:7px;background:#2c3850;border:none;color:#fff;cursor:pointer}
+  .scrub{flex:1;height:5px;background:#2c3850;border-radius:3px;position:relative}.scrub b{position:absolute;inset:0 62% 0 0;background:var(--accent);border-radius:3px}
+  .transport small{font-size:11px;color:var(--dim)}
+  .panic{margin-left:auto;display:flex;gap:8px}
+  .panic button{padding:0 18px;height:38px;border-radius:9px;border:1px solid var(--line);background:var(--slate2);color:#fff;font-size:12.5px;font-weight:600;cursor:pointer}
+  .panic .black.on{background:#000;border-color:#000}
+  .panic .clear.on{background:var(--accent);border-color:var(--accent);color:#06231f}
+  .clock{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title">Jerusalem — Stage Focus</div>
+    <div class="out"><span class="dot"></span> Display 2 · Live</div>
+  </div>
+
+  <div class="body">
+    <aside class="rail">
+      <h3>Sunday AM · May 31</h3>
+      <div class="pl">
+        <div class="r-item"><span class="dot-i" style="background:var(--video)">V</span> Welcome Loop</div>
+        <div class="r-item sel"><span class="dot-i" style="background:var(--song)">S</span> Amazing Grace</div>
+        <div class="r-item"><span class="dot-i" style="background:var(--song)">S</span> 10,000 Reasons</div>
+        <div class="r-item"><span class="dot-i" style="background:var(--bible)">B</span> John 3:16–18</div>
+        <div class="r-item"><span class="dot-i" style="background:var(--text)">T</span> Living Hope</div>
+        <div class="r-item"><span class="dot-i" style="background:var(--song)">S</span> Build My Life</div>
+        <div class="r-item"><span class="dot-i" style="background:var(--image)">I</span> Closing</div>
+      </div>
+      <div class="add">+ Add item</div>
+    </aside>
+
+    <div class="main">
+      <!-- big monitors -->
+      <div class="monitors">
+        <div class="mon live">
+          <div class="tag"><span class="d"></span> Live</div>
+          <div class="screen bg1" id="live">
+            <span id="liveText">Amazing grace! How sweet the sound<br>That saved a wretch like me!</span>
+            <div class="blk" id="blk">— BLACK —</div>
+          </div>
+          <div class="undertag" id="liveLbl">Amazing Grace · Verse 1</div>
+        </div>
+        <div class="mon next">
+          <div class="tag">Next ↵</div>
+          <div class="screen bg1" id="next"><span id="nextText">I once was lost, but now am found;<br>Was blind, but now I see.</span></div>
+          <div class="undertag" id="nextLbl">Verse 1 (cont.)</div>
+        </div>
+      </div>
+
+      <!-- filmstrip of current item -->
+      <div class="strip-wrap">
+        <div class="strip-head">
+          <h2>Amazing Grace</h2><span class="meta">7 slides</span>
+          <div class="secs"><span>Verse 1</span><span>Verse 2</span><span>Chorus</span><span>Verse 3</span></div>
+        </div>
+        <div class="strip" id="strip"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <div class="nav"><button id="prev">←</button><button id="nextBtn">→</button></div>
+    <div class="transport"><button class="p">▶</button><div class="scrub"><b></b></div><small>🔊 1:24 / 2:10</small></div>
+    <span class="clock" id="clock">10:42 AM</span>
+    <div class="panic">
+      <button class="black" id="bBlack">Black</button>
+      <button class="clear" id="bClear">Clear</button>
+      <button class="logo">Logo</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const slides=[
+ {lbl:"Verse 1",bg:"bg1",t:"Amazing grace! How sweet the sound<br>That saved a wretch like me!"},
+ {lbl:"Verse 1 (cont.)",bg:"bg1",t:"I once was lost, but now am found;<br>Was blind, but now I see."},
+ {lbl:"Verse 2",bg:"bg1",t:"’Twas grace that taught my heart to fear,<br>And grace my fears relieved;"},
+ {lbl:"Verse 2 (cont.)",bg:"bg1",t:"How precious did that grace appear<br>The hour I first believed."},
+ {lbl:"Chorus",bg:"bg2",t:"My chains are gone, I’ve been set free<br>My God, my Savior has ransomed me"},
+ {lbl:"Verse 3",bg:"bg1",t:"Through many dangers, toils and snares,<br>I have already come;"},
+ {lbl:"Verse 3 (cont.)",bg:"bg1",t:"’Tis grace hath brought me safe thus far,<br>And grace will lead me home."},
+];
+let cur=0;const strip=document.getElementById('strip');
+slides.forEach((s,i)=>{const c=document.createElement('div');c.className='card '+(i===0?'live':'');
+  c.innerHTML=`<div class="th ${s.bg}">${s.t}</div><span class="l">${s.lbl}</span><span class="n">${i+1}</span>`;
+  c.onclick=()=>go(i);strip.appendChild(c);});
+function go(i){cur=Math.max(0,Math.min(slides.length-1,i));
+  document.querySelectorAll('.card').forEach((el,j)=>el.classList.toggle('live',j===cur));
+  const s=slides[cur],n=slides[Math.min(cur+1,slides.length-1)];
+  document.getElementById('live').className='screen '+s.bg;document.getElementById('liveText').innerHTML=s.t;
+  document.getElementById('liveLbl').textContent='Amazing Grace · '+s.lbl;
+  document.getElementById('next').className='screen '+n.bg;document.getElementById('nextText').innerHTML=n.t;
+  document.getElementById('nextLbl').textContent=n.lbl;
+  document.querySelectorAll('.card')[cur].scrollIntoView({inline:'center',behavior:'smooth'});}
+document.addEventListener('keydown',e=>{
+  if([' ','ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();go(cur+1);}
+  if(['ArrowLeft','ArrowUp'].includes(e.key)){e.preventDefault();go(cur-1);}
+  if(e.key.toLowerCase()==='b')toggleBlack();});
+document.getElementById('prev').onclick=()=>go(cur-1);
+document.getElementById('nextBtn').onclick=()=>go(cur+1);
+const blk=document.getElementById('blk');
+function toggleBlack(){const on=blk.style.display!=='flex';blk.style.display=on?'flex':'none';document.getElementById('bBlack').classList.toggle('on',on);}
+document.getElementById('bBlack').onclick=toggleBlack;
+document.getElementById('bClear').onclick=function(){this.classList.toggle('on');document.getElementById('liveText').style.opacity=this.classList.contains('on')?'0':'1';};
+setInterval(()=>{const d=new Date();document.getElementById('clock').textContent=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});},1000);
+</script>
+</body>
+</html>
