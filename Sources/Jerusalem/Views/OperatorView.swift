@@ -27,6 +27,7 @@ struct OperatorView: View {
     @State private var program: [LiveState.ProgramSlide] = []
     @State private var keyMonitor: Any?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var editingSlide: Slide?
 
     private var filteredItems: [Item] {
         searchText.isEmpty ? items
@@ -42,9 +43,7 @@ struct OperatorView: View {
             SidebarView(items: filteredItems, playlists: playlists, selection: $selectedID)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 228, max: 320)
         } detail: {
-            SlideGridView(title: detailTitle, subtitle: detailSubtitle,
-                          slides: program, liveSlideID: live.liveSlideID,
-                          onActivate: { live.goLive(id: $0) })
+            detailContent
                 .inspector(isPresented: $showInspector) {
                     InspectorView(item: selectedItem)
                         .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
@@ -53,12 +52,52 @@ struct OperatorView: View {
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search & go live…")
         .frame(minWidth: 960, minHeight: 600)
-        .onChange(of: selectedID) { _, _ in rebuildProgram() }
+        .sheet(item: $editingSlide) { slide in
+            // Editor sheet hosts the slide's parent item so the navigator rail
+            // can list siblings; falls back to a synthetic wrapper item only
+            // if the slide is somehow orphaned (shouldn't happen in practice).
+            if let item = slide.item {
+                SlideEditorView(item: item, slideID: slide.persistentModelID)
+                    .onDisappear { rebuildProgram() }
+            } else {
+                Text("This slide has no parent item.")
+                    .padding(40)
+            }
+        }
+        .onChange(of: selectedID) { _, _ in
+            rebuildProgram()
+            persistSelection()
+        }
         .onChange(of: live.liveSlideID) { _, _ in
             VideoPrewarmer.shared.prewarm(live.nextProgramSlide?.videoCue)
+            // Render-ahead the next slide at output resolution so advancing
+            // doesn't pay for a fresh `SlideRenderer.makeImage` mid-switch.
+            if let next = live.nextProgramSlide?.renderable {
+                SlidePrewarmer.shared.prewarm(next, pixelSize: output.activeOutputPixelSize)
+            }
         }
-        .onAppear { rebuildProgram(); installKeyMonitor() }
+        .onAppear {
+            // Restore the last operator selection so reopening lands where the
+            // service left off — selection only, not auto-go-live.
+            if selectedID == nil {
+                selectedID = LastPosition.resolve(LastPosition.load(), in: modelContext)
+            }
+            rebuildProgram()
+            installKeyMonitor()
+        }
         .onDisappear(perform: removeKeyMonitor)
+    }
+
+    /// Saves the current selection as `Item` / `Playlist` UUID — survives the
+    /// PersistentIdentifier reset that happens on relaunch.
+    private func persistSelection() {
+        if let item = selectedItem {
+            LastPosition.save(.item(item.uuid))
+        } else if let playlist = selectedPlaylist {
+            LastPosition.save(.playlist(playlist.uuid))
+        } else {
+            LastPosition.save(nil)
+        }
     }
 
     private func rebuildProgram() {
@@ -71,6 +110,36 @@ struct OperatorView: View {
         }
         live.arm(program)
         VideoPrewarmer.shared.prewarm(live.nextProgramSlide?.videoCue)
+    }
+
+    /// Detail-pane content: the slide grid in Show mode (and for playlists/media),
+    /// the song/sermon/Bible editor when in Edit mode on an authored item.
+    @ViewBuilder private var detailContent: some View {
+        if mode == .edit, let item = selectedItem {
+            switch item.kind {
+            case .song:  SongEditorView(item: item)
+            case .text:  SermonEditorView(item: item)
+            case .bible: BibleEditorView(item: item)
+            case .media:
+                slideGrid
+            }
+        } else {
+            slideGrid
+        }
+    }
+
+    private var slideGrid: some View {
+        SlideGridView(title: detailTitle, subtitle: detailSubtitle,
+                      slides: program, liveSlideID: live.liveSlideID,
+                      onActivate: { live.goLive(id: $0) },
+                      onEdit: openSlideEditor)
+    }
+
+    /// Looks up the SwiftData `Slide` by id and presents the Phase 8 editor as
+    /// a sheet. Items whose slides are derived (songs/Bible/sermon) get edited
+    /// here too; the rebuilder stops overwriting once a slide is touched.
+    private func openSlideEditor(id: PersistentIdentifier) {
+        editingSlide = modelContext.model(for: id) as? Slide
     }
 
     /// Window-local key monitor: arrows/space navigate, B/C/L panic. Ignored while a
@@ -132,12 +201,46 @@ struct OperatorView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
+                Button("New Song", systemImage: "music.note") { newAuthoredItem(kind: .song) }
+                Button("New Bible", systemImage: "book.closed") { newAuthoredItem(kind: .bible) }
+                Button("New Text", systemImage: "text.alignleft") { newAuthoredItem(kind: .text) }
+                Divider()
                 Button("Import Media…", systemImage: "square.and.arrow.down") { importMedia() }
             } label: {
                 Label("Add", systemImage: "plus")
             }
             Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.trailing") }
         }
+    }
+
+    /// Inserts a fresh song, sermon/text, or Bible item seeded with the default
+    /// theme and the right authoring scaffolding. Switches to Edit mode and
+    /// selects the new item so the editor opens immediately.
+    private func newAuthoredItem(kind: ItemKind) {
+        let title: String
+        switch kind {
+        case .song:  title = "Untitled Song"
+        case .bible: title = "Untitled Passage"
+        case .text:  title = "Untitled Text"
+        case .media: return
+        }
+        let item = Item(kind: kind, title: title)
+        item.theme = Theme.makeDefault()
+        item.linesPerSlide = kind == .song ? 2 : 3
+        modelContext.insert(item)
+        switch kind {
+        case .song:
+            item.songSections = [SongSection(kind: .verse, number: 1, order: 0, lyrics: "")]
+        case .bible:
+            item.bibleTranslation = BibleSeeder.bundledTranslations().first?.id ?? "kjv"
+            item.bibleReference = ""
+        case .text:
+            item.bodyText = ""
+        case .media:
+            break
+        }
+        mode = .edit
+        selectedID = item.persistentModelID
     }
 
     /// Opens a file picker, copies the chosen clip or image into the media library,

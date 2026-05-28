@@ -56,6 +56,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(playlist.orderedEntries.first?.item?.title, "Test Song")
     }
 
+    @MainActor
     func testSeedingPopulatesEmptyStoreExactlyOnce() throws {
         let container = try ModelContainer(
             for: Persistence.schema,

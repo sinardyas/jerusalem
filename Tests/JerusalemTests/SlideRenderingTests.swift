@@ -73,7 +73,8 @@ final class SlideRenderingTests: XCTestCase {
     func testMotionBackgroundLeavesTransparentBackground() throws {
         let cue = VideoCue(url: URL(fileURLWithPath: "/tmp/none.mov"),
                            loops: true, muted: true, endBehavior: .hold)
-        let motion = RenderableSlide(backgroundColorHex: "#1E3A8A",
+        let motion = RenderableSlide(backgroundKind: .video,
+                                     backgroundColorHex: "#1E3A8A",
                                      elements: [textElement("Hi")], backgroundVideo: cue)
         let solid = RenderableSlide(backgroundColorHex: "#1E3A8A",
                                     elements: [textElement("Hi")])
@@ -112,7 +113,8 @@ final class SlideRenderingTests: XCTestCase {
         let url = directory.appendingPathComponent("red.png")
         try writeSolidPNG(.red, size: 8, to: url)
 
-        var slide = RenderableSlide(backgroundColorHex: "#000000", elements: [])
+        var slide = RenderableSlide(backgroundKind: .image,
+                                    backgroundColorHex: "#000000", elements: [])
         slide.backgroundImageURL = url
 
         let image = try XCTUnwrap(SlideRenderer.makeImage(slide, pixelSize: CGSize(width: 100, height: 100)))

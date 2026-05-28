@@ -48,8 +48,24 @@ final class Item {
     var videoMuted: Bool = false           // media: mute audio
     private var videoEndBehaviorRaw: String = VideoEndBehavior.hold.rawValue
 
+    // Authoring controls for song/text items.
+    /// Maximum number of lyric/body lines that fit on a single derived slide.
+    /// Used by ``ContentRebuilder`` when re-materializing slides from sections.
+    var linesPerSlide: Int = 2
+    /// Body text for sermon/text items, paragraph-separated by blank lines.
+    /// Songs use ``songSections`` instead; this stays nil for them.
+    var bodyText: String?
+
+    /// Output aspect ratio for this item's slides. Encoded as `"16:9"` or `"4:3"`
+    /// (nil means default to 16:9). The Phase 8.2.3 toolbar picker writes here;
+    /// the canvas and renderer read it back via ``aspectRatioValue``.
+    var aspectRatio: String?
+
     @Relationship(deleteRule: .cascade, inverse: \Slide.item)
     var slides: [Slide] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \SongSection.item)
+    var songSections: [SongSection] = []
 
     @Relationship(deleteRule: .cascade, inverse: \PlaylistEntry.item)
     var playlistEntries: [PlaylistEntry] = []
@@ -75,5 +91,22 @@ final class Item {
     /// Slides in presentation order.
     var orderedSlides: [Slide] {
         slides.sorted { $0.order < $1.order }
+    }
+
+    /// Sections in authored order — the source-of-truth view for songs.
+    var orderedSongSections: [SongSection] {
+        songSections.sorted { $0.order < $1.order }
+    }
+
+    /// Numeric aspect ratio derived from ``aspectRatio``. Defaults to 16:9 when
+    /// missing or unparseable so the renderer can never end up dividing by zero.
+    var aspectRatioValue: CGFloat {
+        guard let raw = aspectRatio else { return 16.0 / 9.0 }
+        let parts = raw.split(separator: ":")
+        if parts.count == 2,
+           let w = Double(parts[0]), let h = Double(parts[1]), h > 0 {
+            return CGFloat(w / h)
+        }
+        return 16.0 / 9.0
     }
 }

@@ -53,6 +53,18 @@ final class OutputController: NSObject {
         screens.first { $0.id == activeScreenID }?.name ?? "Output"
     }
 
+    /// Best estimate of the audience output's pixel size, used by
+    /// ``SlidePrewarmer`` to render-ahead at the right resolution. Falls back
+    /// to 1920×1080 when there's no active window (e.g. before Start Output).
+    var activeOutputPixelSize: CGSize {
+        if let id = activeScreenID,
+           let screen = NSScreen.screens.first(where: { $0.displayID == id }) {
+            let scale = screen.backingScaleFactor
+            return CGSize(width: screen.frame.width * scale, height: screen.frame.height * scale)
+        }
+        return CGSize(width: 1920, height: 1080)
+    }
+
     func refreshScreens() {
         screens = NSScreen.screens.map { OutputScreen(id: $0.displayID, name: $0.localizedName) }
     }

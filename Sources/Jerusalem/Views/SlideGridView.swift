@@ -3,13 +3,15 @@ import SwiftData
 
 /// The main detail area: a grid of rendered thumbnails for the active program's
 /// slides. Program-driven (works for either a song/item or a whole playlist), so it
-/// has no direct model dependency. Clicking a thumbnail takes it live.
+/// has no direct model dependency. Clicking a thumbnail takes it live;
+/// right-click reveals "Edit Slide…" which opens the Phase 8 WYSIWYG editor.
 struct SlideGridView: View {
     let title: String
     let subtitle: String
     let slides: [LiveState.ProgramSlide]
     var liveSlideID: PersistentIdentifier?
     var onActivate: (PersistentIdentifier) -> Void = { _ in }
+    var onEdit: (PersistentIdentifier) -> Void = { _ in }
 
     private let columns = [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 18)]
 
@@ -26,6 +28,10 @@ struct SlideGridView: View {
                     ForEach(slides) { slide in
                         Button { onActivate(slide.id) } label: { thumbnail(slide) }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Go Live") { onActivate(slide.id) }
+                                Button("Edit Slide…") { onEdit(slide.id) }
+                            }
                     }
                 }
                 .padding(20)
@@ -53,9 +59,27 @@ struct SlideGridView: View {
                             .padding(6)
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if Self.hasMissingMedia(slide) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .padding(6)
+                            .help("This slide references a file that isn't on disk.")
+                    }
+                }
             if isLive {
                 Text("LIVE").font(.caption2.bold()).foregroundStyle(.red)
             }
+        }
+    }
+
+    /// Surfaces a missing-file warning so the operator notices on Saturday,
+    /// not Sunday. Uses ``MediaAudit`` so this stays a 1-line UI hook.
+    private static func hasMissingMedia(_ slide: LiveState.ProgramSlide) -> Bool {
+        switch slide.kind {
+        case .slide(let renderable): return !MediaAudit.missingFiles(in: renderable).isEmpty
+        case .video(let cue):        return !MediaAudit.isPresent(cue)
         }
     }
 

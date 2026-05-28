@@ -28,12 +28,20 @@ enum SlideRenderer {
 
         // Base fill — skipped for a motion (video) background so the video shows
         // through; black under a static image background so any letterboxing is black.
-        if slide.backgroundVideo == nil {
-            let base = slide.backgroundImageURL != nil
-                ? NSColor.black
-                : (NSColor(hex: slide.backgroundColorHex) ?? .black)
+        switch slide.backgroundKind {
+        case .video:
+            // Transparent backdrop — composited under the live video.
+            break
+        case .image:
+            // Black so letterboxing under an off-aspect image reads as theatre, not bleed.
+            context.setFillColor(NSColor.black.cgColor)
+            context.fill(CGRect(origin: .zero, size: size))
+        case .color:
+            let base = NSColor(hex: slide.backgroundColorHex) ?? .black
             context.setFillColor(base.cgColor)
             context.fill(CGRect(origin: .zero, size: size))
+        case .gradient:
+            drawGradient(slide: slide, in: context, size: size)
         }
 
         // Flip to a top-left origin so normalized (top-left) coordinates and AppKit
@@ -47,7 +55,7 @@ enum SlideRenderer {
         defer { NSGraphicsContext.restoreGraphicsState() }
 
         // Static image background (aspect-fill), if present and loadable.
-        if slide.backgroundVideo == nil,
+        if slide.backgroundKind == .image,
            let url = slide.backgroundImageURL,
            let image = NSImage(contentsOf: url) {
             NSGraphicsContext.saveGraphicsState()
@@ -57,6 +65,11 @@ enum SlideRenderer {
         }
 
         let scale = size.height / referenceHeight
+        // Image elements draw first so text overlays cleanly on top — matches
+        // the prototype's layer order (background → image → text).
+        for element in slide.elements where element.kind == .image {
+            drawImageElement(element, in: size)
+        }
         for element in slide.elements where element.kind == .text {
             draw(element, in: size, scale: scale)
         }
@@ -87,6 +100,34 @@ enum SlideRenderer {
 
     // MARK: - Private
 
+    /// Draws a two-stop linear gradient between ``backgroundColorHex`` and
+    /// ``gradientHex2`` along ``gradientAngle`` (0° = left→right, 90° =
+    /// top→bottom). Falls back to a solid fill if either stop is missing.
+    private static func drawGradient(slide: RenderableSlide,
+                                     in context: CGContext, size: CGSize) {
+        let start = NSColor(hex: slide.backgroundColorHex) ?? .black
+        let end = NSColor(hex: slide.gradientHex2 ?? slide.backgroundColorHex) ?? start
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [start.cgColor, end.cgColor] as CFArray,
+            locations: [0.0, 1.0]) else {
+            context.setFillColor(start.cgColor)
+            context.fill(CGRect(origin: .zero, size: size))
+            return
+        }
+        let radians = slide.gradientAngle * .pi / 180
+        // A unit vector in the requested direction; the gradient covers the
+        // bounding rectangle along that axis from one edge to the opposite.
+        let dx = cos(radians), dy = sin(radians)
+        let half = CGPoint(x: size.width / 2, y: size.height / 2)
+        // Project the half-diagonal onto the direction vector so the gradient
+        // fills corner-to-corner regardless of angle.
+        let extent = abs(dx) * (size.width / 2) + abs(dy) * (size.height / 2)
+        let startPoint = CGPoint(x: half.x - dx * extent, y: half.y - dy * extent)
+        let endPoint = CGPoint(x: half.x + dx * extent, y: half.y + dy * extent)
+        context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+    }
+
     /// Rect that scales `imageSize` to cover `bounds` while preserving aspect ratio.
     private static func aspectFill(imageSize: CGSize, in bounds: CGRect) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0 else { return bounds }
@@ -94,6 +135,21 @@ enum SlideRenderer {
         let scaled = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         return CGRect(x: bounds.midX - scaled.width / 2, y: bounds.midY - scaled.height / 2,
                       width: scaled.width, height: scaled.height)
+    }
+
+    /// Aspect-fills a per-element image into its normalized frame. Missing /
+    /// unloadable files are a silent no-op so a deleted clip can never crash
+    /// the renderer mid-service — the slide's other elements still draw.
+    private static func drawImageElement(_ element: RenderableElement, in size: CGSize) {
+        guard let filename = element.imageFilename else { return }
+        let url = MediaStorage.url(forFilename: filename)
+        guard let image = NSImage(contentsOf: url) else { return }
+        let box = CGRect(x: element.x * size.width, y: element.y * size.height,
+                         width: element.width * size.width, height: element.height * size.height)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: box).addClip()
+        image.draw(in: aspectFill(imageSize: image.size, in: box))
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private static func draw(_ element: RenderableElement, in size: CGSize, scale: CGFloat) {
@@ -133,14 +189,18 @@ enum SlideRenderer {
         return font
     }
 
-    private static func paragraph(_ alignment: TextAlignmentOption, fontSize: CGFloat) -> NSParagraphStyle {
+    private static func paragraph(_ alignment: TextAlignmentOption, fontSize: CGFloat,
+                                  lineSpacingMultiplier: Double = 1.35) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         switch alignment {
-        case .leading:  style.alignment = .left
-        case .center:   style.alignment = .center
-        case .trailing: style.alignment = .right
+        case .leading:   style.alignment = .left
+        case .center:    style.alignment = .center
+        case .trailing:  style.alignment = .right
+        case .justified: style.alignment = .justified
         }
-        style.lineSpacing = fontSize * 0.06
+        // A multiplier of 1.0 means "leading = font size" — `NSParagraphStyle.lineSpacing`
+        // is *additional* leading, so subtract one before scaling by the font.
+        style.lineSpacing = max(0, fontSize * (lineSpacingMultiplier - 1.0))
         return style
     }
 
@@ -158,20 +218,34 @@ enum SlideRenderer {
     private static func styledString(
         _ text: String, element: RenderableElement, fontSize: CGFloat
     ) -> NSAttributedString {
+        let scale = fontSize / max(1, element.fontSize)
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font(element.fontName, size: fontSize, isBold: element.isBold, isItalic: element.isItalic),
             .foregroundColor: NSColor(hex: element.colorHex) ?? .white,
-            .paragraphStyle: paragraph(element.alignment, fontSize: fontSize),
+            .paragraphStyle: paragraph(element.alignment, fontSize: fontSize,
+                                       lineSpacingMultiplier: element.lineSpacingMultiplier),
         ]
+        if element.letterSpacing != 0 {
+            // Letter-spacing is authored at the reference font size, so scale
+            // it down for autofit's adjusted size — same visual weight either way.
+            attributes[.kern] = element.letterSpacing * scale
+        }
+        if element.isUnderlined {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
         if element.hasStroke {
-            attributes[.strokeColor] = NSColor.black
-            attributes[.strokeWidth] = -3.0   // negative = fill *and* stroke
+            attributes[.strokeColor] = NSColor(hex: element.strokeColorHex) ?? .black
+            // Negative width = fill *and* stroke. The number is a percent of the
+            // font size in AppKit's API, so scaling is automatic.
+            let normalized = max(0.1, element.strokeWidth)
+            attributes[.strokeWidth] = -normalized
         }
         if element.hasShadow {
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.7)
-            shadow.shadowOffset = NSSize(width: 0, height: -max(1, fontSize * 0.05))
-            shadow.shadowBlurRadius = fontSize * 0.12
+            shadow.shadowColor = NSColor(hex: element.shadowColorHex)
+                ?? NSColor.black.withAlphaComponent(0.7)
+            shadow.shadowOffset = NSSize(width: 0, height: element.shadowOffsetY * scale)
+            shadow.shadowBlurRadius = max(0, element.shadowBlur * scale)
             attributes[.shadow] = shadow
         }
         return NSAttributedString(string: text, attributes: attributes)

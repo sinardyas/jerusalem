@@ -24,7 +24,11 @@ struct RenderableSlideView: View {
             .task(id: RenderRequest(slide: renderable,
                                     width: Int(pixelSize.width),
                                     height: Int(pixelSize.height))) {
-                image = SlideRenderer.makeImage(renderable, pixelSize: pixelSize)
+                // Prewarmer-routed render: a cache hit means a prior prewarm
+                // already rasterized this slide at this size (typical when the
+                // live output rolls forward to the next program slide); a miss
+                // renders + inserts so subsequent re-mounts are free.
+                image = SlidePrewarmer.shared.prewarm(renderable, pixelSize: pixelSize)
             }
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
