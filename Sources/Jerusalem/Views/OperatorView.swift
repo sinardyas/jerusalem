@@ -4,14 +4,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// The operator (live control) window. Drives the live program from the keyboard
-/// (arrow/space + Black/Clear/Logo), search, and slide clicks.
+/// (arrow/space + Black/Clear/Logo), search, and slide clicks. All editing —
+/// title, content, and slide design — happens in the separate slide-editor
+/// window (Phase 8.5); this window is presentation/live-control only.
 struct OperatorView: View {
-
-    enum Mode: String, CaseIterable, Identifiable {
-        case show = "Show"
-        case edit = "Edit"
-        var id: String { rawValue }
-    }
 
     @Query(sort: \Item.title) private var items: [Item]
     @Query(sort: \Playlist.name) private var playlists: [Playlist]
@@ -19,15 +15,17 @@ struct OperatorView: View {
     @Environment(LiveState.self) private var live
     @Environment(OutputController.self) private var output
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
 
-    @State private var mode: Mode = .edit
     @State private var showInspector = true
     @State private var searchText = ""
     @State private var selectedID: PersistentIdentifier?
     @State private var program: [LiveState.ProgramSlide] = []
     @State private var keyMonitor: Any?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var editingSlide: Slide?
+    /// Identity of this operator window, so the key monitor can tell when the
+    /// operator (vs. an editor window) is key. See ``installKeyMonitor``.
+    @State private var windowRef = WindowRef()
 
     private var filteredItems: [Item] {
         searchText.isEmpty ? items
@@ -43,7 +41,7 @@ struct OperatorView: View {
             SidebarView(items: filteredItems, playlists: playlists, selection: $selectedID)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 228, max: 320)
         } detail: {
-            detailContent
+            slideGrid
                 .inspector(isPresented: $showInspector) {
                     InspectorView(item: selectedItem)
                         .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
@@ -52,17 +50,11 @@ struct OperatorView: View {
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search & go live…")
         .frame(minWidth: 960, minHeight: 600)
-        .sheet(item: $editingSlide) { slide in
-            // Editor sheet hosts the slide's parent item so the navigator rail
-            // can list siblings; falls back to a synthetic wrapper item only
-            // if the slide is somehow orphaned (shouldn't happen in practice).
-            if let item = slide.item {
-                SlideEditorView(item: item, slideID: slide.persistentModelID)
-                    .onDisappear { rebuildProgram() }
-            } else {
-                Text("This slide has no parent item.")
-                    .padding(40)
-            }
+        .onReceive(NotificationCenter.default.publisher(for: .slideEditorDidClose)) { _ in
+            // The editor edits the live model in its own window; once it closes
+            // we re-arm the program so the operator grid + audience output pick
+            // up the edits. `rebuildProgram()` is idempotent.
+            rebuildProgram()
         }
         .onChange(of: selectedID) { _, _ in
             rebuildProgram()
@@ -86,6 +78,7 @@ struct OperatorView: View {
             installKeyMonitor()
         }
         .onDisappear(perform: removeKeyMonitor)
+        .background(WindowAccessor { windowRef.window = $0 })
     }
 
     /// Saves the current selection as `Item` / `Playlist` UUID — survives the
@@ -112,22 +105,8 @@ struct OperatorView: View {
         VideoPrewarmer.shared.prewarm(live.nextProgramSlide?.videoCue)
     }
 
-    /// Detail-pane content: the slide grid in Show mode (and for playlists/media),
-    /// the song/sermon/Bible editor when in Edit mode on an authored item.
-    @ViewBuilder private var detailContent: some View {
-        if mode == .edit, let item = selectedItem {
-            switch item.kind {
-            case .song:  SongEditorView(item: item)
-            case .text:  SermonEditorView(item: item)
-            case .bible: BibleEditorView(item: item)
-            case .media:
-                slideGrid
-            }
-        } else {
-            slideGrid
-        }
-    }
-
+    /// The operator detail pane is always the slide grid now — all editing moved
+    /// to the slide-editor window (Phase 8.5).
     private var slideGrid: some View {
         SlideGridView(title: detailTitle, subtitle: detailSubtitle,
                       slides: program, liveSlideID: live.liveSlideID,
@@ -135,11 +114,25 @@ struct OperatorView: View {
                       onEdit: openSlideEditor)
     }
 
-    /// Looks up the SwiftData `Slide` by id and presents the Phase 8 editor as
-    /// a sheet. Items whose slides are derived (songs/Bible/sermon) get edited
-    /// here too; the rebuilder stops overwriting once a slide is touched.
+    /// Opens the slide editor for the selected item (the editor is keyed on the
+    /// item now, so it works even before any slides exist). Reopening the same
+    /// item raises its existing window.
+    private func openEditor(for item: Item?) {
+        guard let item else { return }
+        openWindow(id: "slide-editor", value: item.persistentModelID)
+    }
+
+    /// Grid "Edit Slide…" / double-click passes a *program slide* id; resolve it
+    /// to the parent item and open that item's editor. Media program ids resolve
+    /// to the item directly; otherwise fall back to the current selection.
     private func openSlideEditor(id: PersistentIdentifier) {
-        editingSlide = modelContext.model(for: id) as? Slide
+        if let slide = modelContext.model(for: id) as? Slide, let item = slide.item {
+            openWindow(id: "slide-editor", value: item.persistentModelID)
+        } else if modelContext.model(for: id) is Item {
+            openWindow(id: "slide-editor", value: id)
+        } else {
+            openEditor(for: selectedItem)
+        }
     }
 
     /// Window-local key monitor: arrows/space navigate, B/C/L panic. Ignored while a
@@ -147,8 +140,14 @@ struct OperatorView: View {
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         let live = self.live
+        let windowRef = self.windowRef
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             MainActor.assumeIsolated {
+                // Only drive the live program from the operator window. Since the
+                // Phase 8.4 editor is its own window, arrows/space/B-C-L pressed
+                // while it (or any other window) is key must pass through —
+                // editing must never advance or blank the audience output.
+                guard NSApp.keyWindow === windowRef.window else { return event }
                 if NSApp.keyWindow?.firstResponder is NSText { return event }
                 switch event.keyCode {
                 case 49, 124, 125: live.next(); return nil          // space, →, ↓
@@ -173,11 +172,11 @@ struct OperatorView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            Picker("Mode", selection: $mode) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+            Button { openEditor(for: selectedItem) } label: {
+                Label("Edit", systemImage: "square.and.pencil")
             }
-            .pickerStyle(.segmented)
-            .fixedSize()
+            .help("Edit this item — title, content, and slide design")
+            .disabled(selectedItem == nil)
         }
         ToolbarItem(placement: .status) {
             Menu {
@@ -214,8 +213,8 @@ struct OperatorView: View {
     }
 
     /// Inserts a fresh song, sermon/text, or Bible item seeded with the default
-    /// theme and the right authoring scaffolding. Switches to Edit mode and
-    /// selects the new item so the editor opens immediately.
+    /// theme and the right authoring scaffolding, selects it, and opens the slide
+    /// editor on it so the operator can start authoring immediately.
     private func newAuthoredItem(kind: ItemKind) {
         let title: String
         switch kind {
@@ -239,8 +238,8 @@ struct OperatorView: View {
         case .media:
             break
         }
-        mode = .edit
         selectedID = item.persistentModelID
+        openEditor(for: item)
     }
 
     /// Opens a file picker, copies the chosen clip or image into the media library,
@@ -260,6 +259,29 @@ struct OperatorView: View {
         } catch {
             NSSound.beep()
         }
+    }
+}
+
+/// Weak holder for a window reference, captured by the key monitor closure so it
+/// reads the *current* window identity at fire time (not whatever it was at
+/// install time).
+final class WindowRef {
+    weak var window: NSWindow?
+}
+
+/// Resolves the `NSWindow` hosting a SwiftUI view and reports it back. Used to
+/// learn the operator window's identity without an `NSWindowDelegate`.
+struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
     }
 }
 

@@ -18,6 +18,8 @@ struct SlideCanvasView: View {
     var aspectRatio: CGFloat = 16.0 / 9.0
     var toastCenter: EditorToastCenter? = nil
     var onInlineEditRequest: ((SlideElement) -> Void)? = nil
+    var onDuplicate: ((SlideElement) -> Void)? = nil
+    var onDelete: ((SlideElement) -> Void)? = nil
 
     @State private var dragOrigin: SlideGeometry.Frame? = nil
     @State private var dragHandle: SlideGeometry.Handle? = nil
@@ -92,6 +94,10 @@ struct SlideCanvasView: View {
                 }
                 .onTapGesture {
                     selection = element.persistentModelID
+                }
+                .contextMenu {
+                    Button("Duplicate") { onDuplicate?(element) }
+                    Button("Delete", role: .destructive) { onDelete?(element) }
                 }
             // Selection outline + 8 resize handles.
             if isSelected {

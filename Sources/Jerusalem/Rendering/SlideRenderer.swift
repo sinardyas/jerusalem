@@ -65,13 +65,16 @@ enum SlideRenderer {
         }
 
         let scale = size.height / referenceHeight
-        // Image elements draw first so text overlays cleanly on top — matches
-        // the prototype's layer order (background → image → text).
-        for element in slide.elements where element.kind == .image {
-            drawImageElement(element, in: size)
-        }
-        for element in slide.elements where element.kind == .text {
-            draw(element, in: size, scale: scale)
+        // Single ordered pass: elements are pre-sorted back→front by `order`
+        // (see `Slide.orderedElements`), so the editor's Layers panel can restack
+        // any object type above or below any other — there is no fixed
+        // shape→image→text precedence.
+        for element in slide.elements {
+            switch element.kind {
+            case .shape: drawShapeElement(element, in: size, scale: scale)
+            case .image: drawImageElement(element, in: size)
+            case .text:  draw(element, in: size, scale: scale)
+            }
         }
 
         return context.makeImage()
@@ -152,6 +155,37 @@ enum SlideRenderer {
         NSGraphicsContext.restoreGraphicsState()
     }
 
+    /// Fills a vector shape into its normalized frame, with an optional border
+    /// reusing the element's stroke fields. Corner radius is authored at the
+    /// reference height, so it scales with the output like `fontSize` does.
+    private static func drawShapeElement(_ element: RenderableElement, in size: CGSize, scale: CGFloat) {
+        let box = CGRect(x: element.x * size.width, y: element.y * size.height,
+                         width: element.width * size.width, height: element.height * size.height)
+        guard box.width > 0, box.height > 0 else { return }
+
+        let path: NSBezierPath
+        switch element.shapeType {
+        case .rectangle:
+            path = NSBezierPath(rect: box)
+        case .ellipse:
+            path = NSBezierPath(ovalIn: box)
+        case .roundedRectangle:
+            // Clamp the radius so it can't exceed half the smaller side.
+            let radius = min(element.cornerRadius * scale, min(box.width, box.height) / 2)
+            path = NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius)
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        (NSColor(hex: element.fillColorHex) ?? .systemBlue).setFill()
+        path.fill()
+        if element.hasStroke {
+            (NSColor(hex: element.strokeColorHex) ?? .black).setStroke()
+            path.lineWidth = max(0.1, element.strokeWidth) * scale
+            path.stroke()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     private static func draw(_ element: RenderableElement, in size: CGSize, scale: CGFloat) {
         guard let text = element.text, !text.isEmpty else { return }
 
@@ -178,15 +212,25 @@ enum SlideRenderer {
     }
 
     private static func font(_ name: String, size: CGFloat, isBold: Bool, isItalic: Bool) -> NSFont {
-        var font = NSFont(name: name, size: size) ?? NSFont.systemFont(ofSize: size)
         var traits: NSFontDescriptor.SymbolicTraits = []
         if isBold { traits.insert(.bold) }
         if isItalic { traits.insert(.italic) }
-        if !traits.isEmpty {
-            let descriptor = font.fontDescriptor.withSymbolicTraits(traits)
-            if let adjusted = NSFont(descriptor: descriptor, size: size) { font = adjusted }
+        // The picker offers *family* names ("Avenir Next", "Helvetica Neue", …);
+        // `NSFont(name:)` only accepts PostScript names and would return nil for
+        // most of them (silently falling back to the system font), so resolve the
+        // family through a descriptor and apply bold/italic as symbolic traits.
+        let base = NSFontDescriptor(fontAttributes: [.family: name])
+        let descriptor = traits.isEmpty ? base : base.withSymbolicTraits(traits)
+        if let resolved = NSFont(descriptor: descriptor, size: size) { return resolved }
+        // The family lacks the requested trait — use it without the trait.
+        if let plain = NSFont(descriptor: base, size: size) { return plain }
+        // Unknown family (e.g. the special "SF Pro Text") — system font + traits.
+        var system = NSFont.systemFont(ofSize: size)
+        if !traits.isEmpty,
+           let adjusted = NSFont(descriptor: system.fontDescriptor.withSymbolicTraits(traits), size: size) {
+            system = adjusted
         }
-        return font
+        return system
     }
 
     private static func paragraph(_ alignment: TextAlignmentOption, fontSize: CGFloat,

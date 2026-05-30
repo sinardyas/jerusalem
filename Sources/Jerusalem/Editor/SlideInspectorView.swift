@@ -1,49 +1,69 @@
 import SwiftUI
 import SwiftData
+import AppKit
+import UniformTypeIdentifiers
 
-/// Phase 8 inspector. Edits the selected element's typography + effects + the
-/// slide's background. Each mutation flips ``Slide/isManuallyEdited`` so the
-/// rebuilder steps back and leaves the editor's work alone.
+/// Phase 8 inspector, re-skinned in Phase 8.4 to the prototype's dense panel —
+/// a plain scrolling column of titled ``InspectorSection`` blocks (not the
+/// System-Settings `.formStyle(.grouped)` cards), built from native macOS
+/// controls. Section order mirrors the prototype: object styling
+/// (Font/Paragraph/Stroke & Shadow, or Shape) → Slide → Background → Arrange →
+/// Theme. Each mutation flips ``Slide/isManuallyEdited`` so the rebuilder steps
+/// back and leaves the editor's work alone.
 struct SlideInspectorView: View {
     @Bindable var item: Item
     @Bindable var slide: Slide
     /// The currently selected element, or `nil` if only the slide is "selected".
-    /// Lookup is done by the parent so the inspector doesn't fight selection state.
     var selectedElement: SlideElement?
 
     var body: some View {
-        Form {
-            slideSection
-            if let element = selectedElement {
-                ElementInspector(element: element, onChange: markEdited)
-                SlideArrangeSection(slide: slide, element: element, onChange: markEdited)
-            } else {
-                Section {
-                    Text("Tap an element on the canvas to edit it.")
-                        .font(.callout).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                InspectorHeaderChip(kind: selectedElement?.kind)
+
+                if let element = selectedElement {
+                    switch element.kind {
+                    case .text:  TextElementInspector(element: element, onChange: markEdited)
+                    case .shape: ShapeElementInspector(element: element, onChange: markEdited)
+                    case .image: ImageElementInspector(element: element, onChange: markEdited)
+                    }
+                } else {
+                    InspectorSection(title: "Object") {
+                        Text("Select an object on the canvas to edit it, or set the slide background below.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+
+                slideSection
+                SlideBackgroundSection(slide: slide, onChange: markEdited)
+                if let element = selectedElement {
+                    SlideArrangeSection(slide: slide, element: element, onChange: markEdited)
+                }
+                SlideThemeSection(item: item, selectedElement: selectedElement, onChange: markEdited)
             }
-            SlideThemeSection(item: item, selectedElement: selectedElement, onChange: markEdited)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    @ViewBuilder private var slideSection: some View {
-        Section {
-            TextField("Section label", text: Binding(
-                get: { slide.sectionLabel ?? "" },
-                set: { slide.sectionLabel = $0.isEmpty ? nil : $0 }))
-        } header: { Text("Slide") }
-
-        SlideBackgroundSection(slide: slide, onChange: markEdited)
+    private var slideSection: some View {
+        InspectorSection(title: "Slide") {
+            InspectorRow(label: "Label") {
+                TextField("Section label", text: Binding(
+                    get: { slide.sectionLabel ?? "" },
+                    set: { slide.sectionLabel = $0.isEmpty ? nil : $0 }))
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
     }
 
     private func markEdited() { slide.isManuallyEdited = true }
 }
 
-/// Element-specific section. Extracted so the parent's `body` stays narrow
-/// enough for SwiftUI's type-checker.
-private struct ElementInspector: View {
+// MARK: - Text element (Font · Paragraph · Stroke & Shadow)
+
+private struct TextElementInspector: View {
     @Bindable var element: SlideElement
     var onChange: () -> Void
 
@@ -51,112 +71,210 @@ private struct ElementInspector: View {
                                       "Georgia", "Times New Roman", "Menlo"]
 
     var body: some View {
-        Section {
-            if element.kind == .text {
-                TextField("Text", text: Binding(
-                    get: { element.text ?? "" },
-                    set: { element.text = $0; onChange() }),
-                          axis: .vertical)
-                    .lineLimit(2...6)
-            }
-        } header: { Text("Content") }
+        fontSection
+        paragraphSection
+        strokeShadowSection
+    }
 
-        if element.kind == .text {
-            fontSection
-            paragraphSection
-            strokeAndShadowSection
+    private var fontSection: some View {
+        InspectorSection(title: "Font") {
+            InspectorRow(label: "Family") {
+                Picker("", selection: edited(\.fontName)) {
+                    ForEach(Self.fontChoices, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+            }
+            InspectorRow(label: "Size") {
+                HStack(spacing: 8) {
+                    TextField("", value: fontSizeBinding, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 50)
+                        .multilineTextAlignment(.trailing)
+                    Stepper("", value: fontSizeBinding, in: 8...400, step: 1)
+                        .labelsHidden()
+                    ColorPicker("", selection: colorBinding(\.colorHex)).labelsHidden()
+                }
+            }
+            InspectorRow(label: "Style") {
+                HStack(spacing: 6) {
+                    Toggle("B", isOn: edited(\.isBold)).font(.body.bold())
+                    Toggle("I", isOn: edited(\.isItalic)).font(.body.italic())
+                    Toggle("U", isOn: edited(\.isUnderlined)).underline(element.isUnderlined)
+                }
+                .toggleStyle(.button)
+            }
         }
     }
 
-    // MARK: - Font (family · size · color · B/I/U)
-
-    @ViewBuilder private var fontSection: some View {
-        Section {
-            Picker("Family", selection: $element.fontName) {
-                ForEach(Self.fontChoices, id: \.self) { Text($0).tag($0) }
-            }
-            HStack {
-                Stepper(value: $element.fontSize, in: 12...240, step: 2) {
-                    LabeledContent("Size", value: "\(Int(element.fontSize)) pt")
-                }
-                ColorPicker("", selection: Binding(
-                    get: { Color(hex: element.colorHex) },
-                    set: { element.colorHex = $0.hexString; onChange() }))
-                    .labelsHidden()
-            }
-            HStack {
-                Toggle("B", isOn: $element.isBold).toggleStyle(.button)
-                    .font(.body.bold())
-                Toggle("I", isOn: $element.isItalic).toggleStyle(.button)
-                    .font(.body.italic())
-                Toggle("U", isOn: $element.isUnderlined).toggleStyle(.button)
-                    .underline(element.isUnderlined)
-                Spacer()
-            }
-        } header: { Text("Font") }
-    }
-
-    // MARK: - Paragraph (alignment · line/letter spacing · autofit)
-
-    @ViewBuilder private var paragraphSection: some View {
-        Section {
-            Picker("Alignment", selection: $element.alignment) {
+    private var paragraphSection: some View {
+        InspectorSection(title: "Paragraph") {
+            Picker("", selection: edited(\.alignment)) {
                 Image(systemName: "text.alignleft").tag(TextAlignmentOption.leading)
                 Image(systemName: "text.aligncenter").tag(TextAlignmentOption.center)
                 Image(systemName: "text.alignright").tag(TextAlignmentOption.trailing)
                 Image(systemName: "text.justify").tag(TextAlignmentOption.justified)
             }
             .pickerStyle(.segmented)
-            VStack(alignment: .leading) {
-                LabeledContent("Line spacing", value: String(format: "%.2f×", element.lineSpacingMultiplier))
-                Slider(value: $element.lineSpacingMultiplier, in: 0.9...2.2, step: 0.05) { _ in onChange() }
+            .labelsHidden()
+            sliderRow("Line", value: edited(\.lineSpacingMultiplier), range: 0.9...2.2, step: 0.05,
+                      display: String(format: "%.2f×", element.lineSpacingMultiplier))
+            sliderRow("Letter", value: edited(\.letterSpacing), range: -3...12, step: 0.5,
+                      display: String(format: "%.1f", element.letterSpacing))
+            InspectorRow(label: "Auto-fit") {
+                Toggle("", isOn: edited(\.autoFit)).labelsHidden().toggleStyle(.switch)
             }
-            VStack(alignment: .leading) {
-                LabeledContent("Letter spacing", value: String(format: "%.1f", element.letterSpacing))
-                Slider(value: $element.letterSpacing, in: -3...12, step: 0.5) { _ in onChange() }
-            }
-            Toggle("Auto-fit", isOn: $element.autoFit)
-        } header: { Text("Paragraph") }
+        }
     }
 
-    // MARK: - Stroke & Shadow
-
-    @ViewBuilder private var strokeAndShadowSection: some View {
-        Section {
-            HStack {
-                Toggle("Outline", isOn: $element.hasStroke)
-                Spacer()
-                ColorPicker("", selection: Binding(
-                    get: { Color(hex: element.strokeColorHex) },
-                    set: { element.strokeColorHex = $0.hexString; onChange() }))
-                    .labelsHidden()
-                    .disabled(!element.hasStroke)
+    private var strokeShadowSection: some View {
+        InspectorSection(title: "Stroke & Shadow") {
+            InspectorRow(label: "Outline") {
+                HStack(spacing: 8) {
+                    Toggle("", isOn: edited(\.hasStroke)).labelsHidden().toggleStyle(.switch)
+                    ColorPicker("", selection: colorBinding(\.strokeColorHex)).labelsHidden()
+                        .disabled(!element.hasStroke)
+                }
             }
-            VStack(alignment: .leading) {
-                LabeledContent("Outline width", value: String(format: "%.1f", element.strokeWidth))
-                Slider(value: $element.strokeWidth, in: 0...10, step: 0.5) { _ in onChange() }
-                    .disabled(!element.hasStroke)
+            sliderRow("Width", value: edited(\.strokeWidth), range: 0...10, step: 0.5,
+                      display: String(format: "%.1f", element.strokeWidth))
+                .disabled(!element.hasStroke)
+            InspectorRow(label: "Shadow") {
+                HStack(spacing: 8) {
+                    Toggle("", isOn: edited(\.hasShadow)).labelsHidden().toggleStyle(.switch)
+                    ColorPicker("", selection: colorBinding(\.shadowColorHex)).labelsHidden()
+                        .disabled(!element.hasShadow)
+                }
             }
-            HStack {
-                Toggle("Shadow", isOn: $element.hasShadow)
-                Spacer()
-                ColorPicker("", selection: Binding(
-                    get: { Color(hex: element.shadowColorHex) },
-                    set: { element.shadowColorHex = $0.hexString; onChange() }))
-                    .labelsHidden()
-                    .disabled(!element.hasShadow)
-            }
-            VStack(alignment: .leading) {
-                LabeledContent("Shadow blur", value: String(format: "%.0f", element.shadowBlur))
-                Slider(value: $element.shadowBlur, in: 0...40, step: 1) { _ in onChange() }
-                    .disabled(!element.hasShadow)
-            }
-            VStack(alignment: .leading) {
-                LabeledContent("Shadow offset", value: String(format: "%.0f", element.shadowOffsetY))
-                Slider(value: $element.shadowOffsetY, in: -20...20, step: 1) { _ in onChange() }
-                    .disabled(!element.hasShadow)
-            }
-        } header: { Text("Stroke & Shadow") }
+            sliderRow("Blur", value: edited(\.shadowBlur), range: 0...40, step: 1,
+                      display: String(format: "%.0f", element.shadowBlur))
+                .disabled(!element.hasShadow)
+            sliderRow("Offset", value: edited(\.shadowOffsetY), range: -20...20, step: 1,
+                      display: String(format: "%.0f", element.shadowOffsetY))
+                .disabled(!element.hasShadow)
+        }
     }
 
+    // MARK: Row + binding helpers
+
+    private func sliderRow(_ label: String, value: Binding<Double>,
+                           range: ClosedRange<Double>, step: Double, display: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label).font(.callout)
+                Spacer()
+                Text(display).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: step)
+        }
+    }
+
+    /// Binding to a model property that fires `onChange` (marks the slide edited).
+    private func edited<T>(_ keyPath: ReferenceWritableKeyPath<SlideElement, T>) -> Binding<T> {
+        Binding(get: { element[keyPath: keyPath] },
+                set: { element[keyPath: keyPath] = $0; onChange() })
+    }
+    /// Font size, clamped to a sane range so a typed value can't break layout.
+    private var fontSizeBinding: Binding<Double> {
+        Binding(get: { element.fontSize },
+                set: { element.fontSize = min(400, max(8, $0)); onChange() })
+    }
+    /// Hex-string property exposed as a SwiftUI `Color`.
+    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<SlideElement, String>) -> Binding<Color> {
+        Binding(get: { Color(hex: element[keyPath: keyPath]) },
+                set: { element[keyPath: keyPath] = $0.hexString; onChange() })
+    }
+}
+
+// MARK: - Shape element (Shape type · Fill · Corner · Outline)
+
+private struct ShapeElementInspector: View {
+    @Bindable var element: SlideElement
+    var onChange: () -> Void
+
+    var body: some View {
+        InspectorSection(title: "Shape") {
+            Picker("", selection: edited(\.shapeType)) {
+                Image(systemName: "rectangle").tag(ShapeType.rectangle)
+                Image(systemName: "circle").tag(ShapeType.ellipse)
+                Image(systemName: "rectangle.roundedtop").tag(ShapeType.roundedRectangle)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            InspectorRow(label: "Fill") {
+                ColorPicker("", selection: colorBinding(\.fillColorHex)).labelsHidden()
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("Corner").font(.callout)
+                    Spacer()
+                    Text(String(format: "%.0f", element.cornerRadius))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Slider(value: edited(\.cornerRadius), in: 0...200, step: 1)
+                    .disabled(element.shapeType != .roundedRectangle)
+            }
+        }
+        InspectorSection(title: "Outline") {
+            InspectorRow(label: "Border") {
+                HStack(spacing: 8) {
+                    Toggle("", isOn: edited(\.hasStroke)).labelsHidden().toggleStyle(.switch)
+                    ColorPicker("", selection: colorBinding(\.strokeColorHex)).labelsHidden()
+                        .disabled(!element.hasStroke)
+                }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("Width").font(.callout)
+                    Spacer()
+                    Text(String(format: "%.1f", element.strokeWidth))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Slider(value: edited(\.strokeWidth), in: 0...20, step: 0.5)
+                    .disabled(!element.hasStroke)
+            }
+        }
+    }
+
+    private func edited<T>(_ keyPath: ReferenceWritableKeyPath<SlideElement, T>) -> Binding<T> {
+        Binding(get: { element[keyPath: keyPath] },
+                set: { element[keyPath: keyPath] = $0; onChange() })
+    }
+    private func colorBinding(_ keyPath: ReferenceWritableKeyPath<SlideElement, String>) -> Binding<Color> {
+        Binding(get: { Color(hex: element[keyPath: keyPath]) },
+                set: { element[keyPath: keyPath] = $0.hexString; onChange() })
+    }
+}
+
+// MARK: - Image element
+
+private struct ImageElementInspector: View {
+    @Bindable var element: SlideElement
+    var onChange: () -> Void
+
+    var body: some View {
+        InspectorSection(title: "Image") {
+            if let filename = element.imageFilename {
+                InspectorRow(label: "File") {
+                    Text(filename).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button("Replace Image…") { pickImage() }
+        }
+    }
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            element.imageFilename = try MediaStorage.importFile(at: url)
+            onChange()
+        } catch {
+            NSSound.beep()
+        }
+    }
 }

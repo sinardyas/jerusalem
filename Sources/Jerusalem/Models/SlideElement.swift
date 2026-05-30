@@ -1,9 +1,13 @@
 import Foundation
 import SwiftData
 
-enum SlideElementKind: String, Codable, Hashable, Sendable { case text, image }
+enum SlideElementKind: String, Codable, Hashable, Sendable { case text, image, shape }
 enum TextAlignmentOption: String, Codable, Hashable, Sendable {
     case leading, center, trailing, justified
+}
+/// Vector shape primitives. Drawn by ``SlideRenderer`` beneath images and text.
+enum ShapeType: String, Codable, Hashable, Sendable {
+    case rectangle, ellipse, roundedRectangle
 }
 
 /// A positioned element on a slide. For the MVP this is primarily styled text;
@@ -47,6 +51,14 @@ final class SlideElement {
     // Image content.
     var imageFilename: String?
 
+    // Shape content (Phase 8.4). A vector primitive filled with `fillColorHex`,
+    // optionally bordered via the existing `hasStroke`/`strokeWidth`/`strokeColorHex`
+    // fields. `cornerRadius` is in points at the 1920×1080 reference (like `fontSize`)
+    // and only applies to `.roundedRectangle`. Defaults keep existing rows unchanged.
+    private var shapeTypeRaw: String = ShapeType.rectangle.rawValue
+    var fillColorHex: String = "#3B82F6"
+    var cornerRadius: Double = 0
+
     var slide: Slide?
 
     init(kind: SlideElementKind, order: Int = 0, text: String? = nil) {
@@ -63,5 +75,27 @@ final class SlideElement {
     var alignment: TextAlignmentOption {
         get { TextAlignmentOption(rawValue: alignmentRaw) ?? .center }
         set { alignmentRaw = newValue.rawValue }
+    }
+
+    var shapeType: ShapeType {
+        get { ShapeType(rawValue: shapeTypeRaw) ?? .rectangle }
+        set { shapeTypeRaw = newValue.rawValue }
+    }
+
+    /// A short human label for this element in the editor's Layers panel.
+    var layerName: String {
+        switch kind {
+        case .text:
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Text" : String(trimmed.prefix(32))
+        case .image:
+            return imageFilename ?? "Image"
+        case .shape:
+            switch shapeType {
+            case .rectangle:        return "Rectangle"
+            case .ellipse:          return "Ellipse"
+            case .roundedRectangle: return "Rounded Rectangle"
+            }
+        }
     }
 }

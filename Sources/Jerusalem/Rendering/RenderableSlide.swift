@@ -41,6 +41,12 @@ struct RenderableElement: Equatable, Hashable, Sendable {
     var autoFit: Bool
     var imageFilename: String?
 
+    // Phase 8.4 shape content — mirrors ``SlideElement``. Defaults keep existing
+    // text/image snapshots and `Equatable`/`Hashable` synthesis valid.
+    var shapeType: ShapeType = .rectangle
+    var fillColorHex: String = "#3B82F6"
+    var cornerRadius: Double = 0
+
     // Phase 8.3.1 typography depth — mirrors ``SlideElement``.
     var lineSpacingMultiplier: Double = 1.35
     var letterSpacing: Double = 0
@@ -96,6 +102,9 @@ extension RenderableElement {
             hasStroke: element.hasStroke,
             autoFit: element.autoFit,
             imageFilename: element.imageFilename,
+            shapeType: element.shapeType,
+            fillColorHex: element.fillColorHex,
+            cornerRadius: element.cornerRadius,
             lineSpacingMultiplier: element.lineSpacingMultiplier,
             letterSpacing: element.letterSpacing,
             strokeWidth: element.strokeWidth,

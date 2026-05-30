@@ -27,5 +27,20 @@ struct JerusalemApp: App {
         .defaultSize(width: 1280, height: 800)
         .windowToolbarStyle(.unified)
         .modelContainer(container)
+
+        // Phase 8.5: the slide editor is its own window (real traffic lights +
+        // unified toolbar) and the single place to edit an item — title, content,
+        // and slide design. Opened from the operator via `openWindow(id:value:)`
+        // carrying the *item's* `PersistentIdentifier` (so it opens even before
+        // any slides exist). Shares the same model container, so edits are
+        // reflected back on close.
+        WindowGroup("Slide Editor", id: "slide-editor", for: PersistentIdentifier.self) { $itemID in
+            SlideEditorWindowRoot(itemID: itemID)
+                .environment(live)
+                .environment(output)
+        }
+        .defaultSize(width: 1320, height: 820)
+        .windowToolbarStyle(.unified)
+        .modelContainer(container)
     }
 }

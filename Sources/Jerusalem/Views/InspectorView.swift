@@ -103,8 +103,9 @@ struct InspectorView: View {
 }
 
 /// Loop / mute / end-behavior controls for a selected video item, bound to the model.
-/// (Takes effect the next time the item is armed.)
-private struct VideoSettingsSection: View {
+/// (Takes effect the next time the item is armed.) Reused by the slide editor's
+/// content rail for `.media` items.
+struct VideoSettingsSection: View {
     @Bindable var item: Item
 
     var body: some View {

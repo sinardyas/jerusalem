@@ -23,7 +23,7 @@ struct SlideThemeSection: View {
     }
 
     var body: some View {
-        Section {
+        InspectorSection(title: "Theme") {
             HStack(alignment: .center, spacing: 10) {
                 ThemePreviewSwatch(theme: theme)
                     .frame(width: 80, height: 45)
@@ -44,7 +44,7 @@ struct SlideThemeSection: View {
             }
             .buttonStyle(.borderless)
             .disabled(selectedElement?.kind != .text)
-        } header: { Text("Theme") }
+        }
         .sheet(isPresented: $showThemePicker) {
             ThemePickerSheet(currentTheme: theme,
                              onPick: { _ in showThemePicker = false })

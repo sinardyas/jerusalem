@@ -31,7 +31,7 @@ struct SongEditorView: View {
             Section {
                 TextEditor(text: $lyrics)
                     .font(.body.monospaced())
-                    .frame(minHeight: 320)
+                    .frame(minHeight: 140)
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))

@@ -150,4 +150,37 @@ final class SlideRenderingTests: XCTestCase {
         let index = ((height / 2) * width + width / 2) * 4
         return (Int(data[index]), Int(data[index + 1]), Int(data[index + 2]))
     }
+
+    /// Regression: changing the font *family* must change the render. The old
+    /// `NSFont(name:)` path returned nil for family names and fell back to the
+    /// system font, so every family looked identical.
+    func testDifferentFontFamiliesRenderDifferently() throws {
+        func render(_ family: String) throws -> [UInt8] {
+            let element = RenderableElement(
+                kind: .text, text: "Reading",
+                x: 0.05, y: 0.30, width: 0.90, height: 0.40,
+                fontName: family, fontSize: 120, colorHex: "#FFFFFF",
+                alignment: .center, isBold: false, isItalic: false,
+                hasShadow: false, hasStroke: false, autoFit: false, imageFilename: nil)
+            let slide = RenderableSlide(backgroundColorHex: "#000000", elements: [element])
+            let image = try XCTUnwrap(
+                SlideRenderer.makeImage(slide, pixelSize: CGSize(width: 480, height: 270)))
+            return imageBytes(image)
+        }
+        XCTAssertNotEqual(try render("Menlo"), try render("Georgia"),
+                          "Different font families must produce different renders")
+    }
+
+    private func imageBytes(_ image: CGImage) -> [UInt8] {
+        let width = image.width, height = image.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &data, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return [] }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return data
+    }
 }

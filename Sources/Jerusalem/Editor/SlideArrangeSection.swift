@@ -11,7 +11,7 @@ struct SlideArrangeSection: View {
     var onChange: () -> Void
 
     var body: some View {
-        Section {
+        InspectorSection(title: "Arrange") {
             HStack(spacing: 8) {
                 percentField("X", value: bindingFor(\.x, min: 0))
                 percentField("Y", value: bindingFor(\.y, min: 0))
@@ -33,9 +33,10 @@ struct SlideArrangeSection: View {
                 Button { reorder(.back) } label: {
                     Image(systemName: "square.3.layers.3d.bottom.filled")
                 }.help("Send to Back")
+                Spacer(minLength: 0)
             }
             .buttonStyle(.bordered)
-        } header: { Text("Arrange") }
+        }
     }
 
     // MARK: - Percent field

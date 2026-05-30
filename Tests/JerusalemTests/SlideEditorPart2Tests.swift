@@ -20,6 +20,19 @@ final class SlideEditorPart2Tests: XCTestCase {
         XCTAssertEqual(item.aspectRatioValue, 16.0 / 9.0, accuracy: 1e-9)
     }
 
+    // MARK: - Canvas zoom (pinch / ⌘-scroll math)
+
+    func testCanvasZoomClampsAndApplies() {
+        XCTAssertEqual(CanvasZoomMath.clamp(5), 2.0, accuracy: 1e-9)        // upper bound
+        XCTAssertEqual(CanvasZoomMath.clamp(0.1), 0.5, accuracy: 1e-9)      // lower bound
+        // Pinch out by 50% from 1.0 → 1.5; an extreme magnify clamps to 2.0.
+        XCTAssertEqual(CanvasZoomMath.applying(magnify: 0.5, to: 1.0), 1.5, accuracy: 1e-9)
+        XCTAssertEqual(CanvasZoomMath.applying(magnify: 5, to: 1.0), 2.0, accuracy: 1e-9)
+        // ⌘-scroll adds the (pre-scaled) delta, clamped.
+        XCTAssertEqual(CanvasZoomMath.applying(scroll: 0.2, to: 1.0), 1.2, accuracy: 1e-9)
+        XCTAssertEqual(CanvasZoomMath.applying(scroll: -10, to: 1.0), 0.5, accuracy: 1e-9)
+    }
+
     // MARK: - 8.3.1 — Text styling depth
 
     func testJustifyAlignmentRoundTripsThroughSnapshot() {

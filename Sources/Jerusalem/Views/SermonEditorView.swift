@@ -34,7 +34,7 @@ struct SermonEditorView: View {
             Section {
                 TextEditor(text: $bodyDraft)
                     .font(.body)
-                    .frame(minHeight: 320)
+                    .frame(minHeight: 140)
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))

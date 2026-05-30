@@ -22,7 +22,7 @@ struct SlideBackgroundSection: View {
     ]
 
     var body: some View {
-        Section {
+        InspectorSection(title: "Background", trailing: "(slide)") {
             Picker("Type", selection: Binding(
                 get: { slide.backgroundKind },
                 set: { slide.backgroundKind = $0; onChange() })) {
@@ -32,6 +32,7 @@ struct SlideBackgroundSection: View {
                 Text("Video").tag(SlideBackgroundKind.video)
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
 
             switch slide.backgroundKind {
             case .color:    colorControls
@@ -39,7 +40,7 @@ struct SlideBackgroundSection: View {
             case .image:    imageControls
             case .video:    videoControls
             }
-        } header: { Text("Background") }
+        }
     }
 
     // MARK: - Color
