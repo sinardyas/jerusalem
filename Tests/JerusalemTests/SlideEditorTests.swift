@@ -12,14 +12,23 @@ final class SlideEditorTests: XCTestCase {
 
     // MARK: - SlideGeometry: clamping
 
-    func testClampedStaysInsideZeroToOneWithMinimumSize() {
-        let tiny = SlideGeometry.clamped(.init(x: -0.2, y: 1.5, width: 0.01, height: 2.0))
-        XCTAssertGreaterThanOrEqual(tiny.x, 0)
-        XCTAssertGreaterThanOrEqual(tiny.y, 0)
+    func testClampedAllowsOverflowWithinPasteboardAndKeepsMinimumSize() {
+        let margin = SlideGeometry.pasteboardMargin
+
+        // A partially-off-slide frame is preserved (overflow is allowed now).
+        let partial = SlideGeometry.clamped(.init(x: -0.3, y: 1.1, width: 0.4, height: 0.2))
+        XCTAssertEqual(partial.x, -0.3, accuracy: 1e-9)
+        XCTAssertEqual(partial.y, 1.1, accuracy: 1e-9)
+
+        // Far-off frames pin to the pasteboard bounds, never beyond.
+        let far = SlideGeometry.clamped(.init(x: 5, y: -5, width: 0.3, height: 0.3))
+        XCTAssertEqual(far.x, 1.0 + margin - 0.3, accuracy: 1e-9)   // pinned at the right pasteboard edge
+        XCTAssertEqual(far.y, -margin, accuracy: 1e-9)              // pinned at the top pasteboard edge
+
+        // Minimum size still holds; size may exceed the slide (full-bleed) but is capped.
+        let tiny = SlideGeometry.clamped(.init(x: 0, y: 0, width: 0.001, height: 9))
         XCTAssertGreaterThanOrEqual(tiny.width, 0.05)
-        XCTAssertGreaterThanOrEqual(tiny.height, 0.05)
-        XCTAssertLessThanOrEqual(tiny.maxX, 1.0)
-        XCTAssertLessThanOrEqual(tiny.maxY, 1.0)
+        XCTAssertLessThanOrEqual(tiny.height, 1.0 + 2 * margin)
     }
 
     // MARK: - SlideGeometry: snap-to-grid

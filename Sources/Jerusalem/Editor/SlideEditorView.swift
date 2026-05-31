@@ -263,8 +263,12 @@ struct SlideEditorView: View {
                     }
                 }
                 .frame(width: 760 * zoom, height: canvasHeight * zoom)
-                .padding(40)
+                // Pasteboard margin so objects can overflow the slide and their
+                // handles stay reachable on the desk (not clipped by the scroll view).
+                .padding(.horizontal, 760 * zoom * SlideGeometry.pasteboardMargin)
+                .padding(.vertical, canvasHeight * zoom * SlideGeometry.pasteboardMargin)
             }
+            .defaultScrollAnchor(.center)
             EditorToast(center: toastCenter)
         }
         .overlay(alignment: .bottomLeading) {

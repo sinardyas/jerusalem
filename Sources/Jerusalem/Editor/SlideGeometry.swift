@@ -43,15 +43,22 @@ enum SlideGeometry {
 
     // MARK: - Clamping
 
-    /// Keeps a frame inside 0…1 by shrinking + nudging. Width/height get a
-    /// minimum so a drag can't accidentally collapse an element to invisibility.
-    static func clamped(_ frame: Frame, minSize: Double = 0.05) -> Frame {
-        var width = max(minSize, min(1.0, frame.width))
-        var height = max(minSize, min(1.0, frame.height))
-        var x = min(max(0, frame.x), 1.0 - width)
-        var y = min(max(0, frame.y), 1.0 - height)
-        if width > 1 { width = 1; x = 0 }
-        if height > 1 { height = 1; y = 0 }
+    /// How far (in slide widths/heights) an element may extend past each edge —
+    /// the "pasteboard" around the slide. Objects can overflow for full-bleed
+    /// designs yet stay grabbable instead of flying off to infinity.
+    static let pasteboardMargin: Double = 0.5
+
+    /// Keeps a frame *grabbable* — a minimum size so a drag can't collapse it,
+    /// and a generous pasteboard bound so it can overflow the slide edges (for
+    /// full-bleed / off-slide placement) without disappearing entirely. Position
+    /// is intentionally **not** pinned inside 0…1.
+    static func clamped(_ frame: Frame, minSize: Double = 0.05,
+                        margin: Double = pasteboardMargin) -> Frame {
+        let maxSpan = 1.0 + 2 * margin
+        let width = max(minSize, min(maxSpan, frame.width))
+        let height = max(minSize, min(maxSpan, frame.height))
+        let x = min(max(-margin, frame.x), 1.0 + margin - width)
+        let y = min(max(-margin, frame.y), 1.0 + margin - height)
         return Frame(x: x, y: y, width: width, height: height)
     }
 
