@@ -20,6 +20,17 @@ final class SlideEditorPart2Tests: XCTestCase {
         XCTAssertEqual(item.aspectRatioValue, 16.0 / 9.0, accuracy: 1e-9)
     }
 
+    // MARK: - Inspector tabs (Format · Arrange · Slide)
+
+    func testInspectorTabAutoSwitchAndCases() {
+        // Selecting an object focuses Format; deselecting returns to Slide.
+        XCTAssertEqual(InspectorTab.onSelectionChange(hasSelection: true), .format)
+        XCTAssertEqual(InspectorTab.onSelectionChange(hasSelection: false), .slide)
+        // The segmented bar's order is fixed left-to-right.
+        XCTAssertEqual(InspectorTab.allCases, [.format, .arrange, .slide])
+        XCTAssertEqual(InspectorTab.allCases.map(\.title), ["Format", "Arrange", "Slide"])
+    }
+
     // MARK: - Canvas zoom (pinch / ⌘-scroll math)
 
     func testCanvasZoomClampsAndApplies() {

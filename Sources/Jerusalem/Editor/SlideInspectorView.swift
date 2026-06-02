@@ -3,48 +3,91 @@ import SwiftData
 import AppKit
 import UniformTypeIdentifiers
 
-/// Phase 8 inspector, re-skinned in Phase 8.4 to the prototype's dense panel —
-/// a plain scrolling column of titled ``InspectorSection`` blocks (not the
-/// System-Settings `.formStyle(.grouped)` cards), built from native macOS
-/// controls. Section order mirrors the prototype: object styling
-/// (Font/Paragraph/Stroke & Shadow, or Shape) → Slide → Background → Arrange →
-/// Theme. Each mutation flips ``Slide/isManuallyEdited`` so the rebuilder steps
-/// back and leaves the editor's work alone.
+/// Phase 8 inspector, re-skinned in Phase 8.4 to the prototype's dense panel of
+/// titled ``InspectorSection`` blocks built from native macOS controls. Phase
+/// 8.11 split the single scrolling column into three tabs (``InspectorTab``) so
+/// per-object concerns no longer interleave with slide-wide ones:
+/// **Format** (the selected element's styling — Font/Paragraph/Stroke & Shadow,
+/// or Shape, or Image), **Arrange** (position/size + layer order), and
+/// **Slide** (label, background, theme). Selecting an object auto-focuses
+/// Format; deselecting returns to Slide. Each mutation flips
+/// ``Slide/isManuallyEdited`` so the rebuilder steps back and leaves the
+/// editor's work alone.
 struct SlideInspectorView: View {
     @Bindable var item: Item
     @Bindable var slide: Slide
     /// The currently selected element, or `nil` if only the slide is "selected".
     var selectedElement: SlideElement?
 
+    /// Which inspector tab is showing. Defaults to `slide` (nothing selected);
+    /// auto-switches on selection change via ``InspectorTab/onSelectionChange``.
+    @State private var tab: InspectorTab = .slide
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                InspectorHeaderChip(kind: selectedElement?.kind)
-
-                if let element = selectedElement {
-                    switch element.kind {
-                    case .text:  TextElementInspector(element: element, onChange: markEdited)
-                    case .shape: ShapeElementInspector(element: element, onChange: markEdited)
-                    case .image: ImageElementInspector(element: element, onChange: markEdited)
-                    }
-                } else {
-                    InspectorSection(title: "Object") {
-                        Text("Select an object on the canvas to edit it, or set the slide background below.")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                slideSection
-                SlideBackgroundSection(slide: slide, onChange: markEdited)
-                if let element = selectedElement {
-                    SlideArrangeSection(slide: slide, element: element, onChange: markEdited)
-                }
-                SlideThemeSection(item: item, selectedElement: selectedElement, onChange: markEdited)
+        VStack(spacing: 0) {
+            InspectorHeaderChip(kind: selectedElement?.kind)
+            Picker("", selection: $tab) {
+                ForEach(InspectorTab.allCases) { Text($0.title).tag($0) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    switch tab {
+                    case .format:  formatTab
+                    case .arrange: arrangeTab
+                    case .slide:   slideTab
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+        .onChange(of: selectedElement?.persistentModelID) { _, id in
+            tab = InspectorTab.onSelectionChange(hasSelection: id != nil)
+        }
+    }
+
+    // MARK: - Tabs
+
+    /// The selected object's styling — or a hint to select one.
+    @ViewBuilder private var formatTab: some View {
+        if let element = selectedElement {
+            switch element.kind {
+            case .text:  TextElementInspector(element: element, onChange: markEdited)
+            case .shape: ShapeElementInspector(element: element, onChange: markEdited)
+            case .image: ImageElementInspector(element: element, onChange: markEdited)
+            }
+        } else {
+            InspectorSection(title: "Format") {
+                Text("Select an object on the canvas to edit its style.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The selected object's position, size, and layer order.
+    @ViewBuilder private var arrangeTab: some View {
+        if let element = selectedElement {
+            SlideArrangeSection(slide: slide, element: element, onChange: markEdited)
+        } else {
+            InspectorSection(title: "Arrange") {
+                Text("Select an object on the canvas to position it.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Slide-wide settings: label, background, and theme.
+    @ViewBuilder private var slideTab: some View {
+        slideSection
+        SlideBackgroundSection(slide: slide, onChange: markEdited)
+        SlideThemeSection(item: item, selectedElement: selectedElement, onChange: markEdited)
     }
 
     private var slideSection: some View {
