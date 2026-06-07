@@ -26,12 +26,10 @@ struct SlideGridView: View {
             ScrollView {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                     ForEach(slides) { slide in
-                        Button { onActivate(slide.id) } label: { thumbnail(slide) }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Go Live") { onActivate(slide.id) }
-                                Button("Edit Slide…") { onEdit(slide.id) }
-                            }
+                        SlideGridCell(slide: slide,
+                                      isLive: slide.id == liveSlideID,
+                                      onActivate: onActivate,
+                                      onEdit: onEdit)
                     }
                 }
                 .padding(20)
@@ -40,10 +38,29 @@ struct SlideGridView: View {
             .navigationSubtitle(subtitle)
         }
     }
+}
 
-    private func thumbnail(_ slide: LiveState.ProgramSlide) -> some View {
-        let isLive = slide.id == liveSlideID
-        return VStack(alignment: .leading, spacing: 6) {
+/// One slide thumbnail in any program grid (flat or grouped): the rendered preview
+/// with a live highlight, section-label badge, and missing-media warning, wrapped in
+/// a button that goes live and a "Go Live / Edit Slide…" context menu. Shared by
+/// ``SlideGridView`` and ``PlaylistSlidesView`` so both render slides identically.
+struct SlideGridCell: View {
+    let slide: LiveState.ProgramSlide
+    let isLive: Bool
+    var onActivate: (PersistentIdentifier) -> Void = { _ in }
+    var onEdit: (PersistentIdentifier) -> Void = { _ in }
+
+    var body: some View {
+        Button { onActivate(slide.id) } label: { thumbnail }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button("Go Live") { onActivate(slide.id) }
+                Button("Edit Slide…") { onEdit(slide.id) }
+            }
+    }
+
+    private var thumbnail: some View {
+        VStack(alignment: .leading, spacing: 6) {
             preview(slide.kind)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8)

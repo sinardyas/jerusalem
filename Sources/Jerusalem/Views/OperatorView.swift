@@ -19,6 +19,14 @@ struct OperatorView: View {
 
     @State private var showInspector = true
     @State private var searchText = ""
+    /// `searchText` debounced (see ``scheduleSearch``) so filtering doesn't walk
+    /// every item's slides on each keystroke.
+    @State private var debouncedQuery = ""
+    @State private var searchTask: Task<Void, Never>?
+    /// Memoized `item → searchableText`, rebuilt on item add/remove and after an
+    /// editor closes (where content edits land). Avoids re-flattening every item's
+    /// slides on each filter pass.
+    @State private var searchIndex: [PersistentIdentifier: String] = [:]
     @State private var selectedID: PersistentIdentifier?
     @State private var program: [LiveState.ProgramSlide] = []
     @State private var keyMonitor: Any?
@@ -28,8 +36,11 @@ struct OperatorView: View {
     @State private var windowRef = WindowRef()
 
     private var filteredItems: [Item] {
-        searchText.isEmpty ? items
-            : items.filter { LibrarySearch.matches(title: $0.title, query: searchText) }
+        guard !debouncedQuery.isEmpty else { return items }
+        return items.filter {
+            let haystack = searchIndex[$0.persistentModelID] ?? $0.searchableText
+            return LibrarySearch.matches(query: debouncedQuery, in: haystack)
+        }
     }
     private var selectedItem: Item? { items.first { $0.persistentModelID == selectedID } }
     private var selectedPlaylist: Playlist? { playlists.first { $0.persistentModelID == selectedID } }
@@ -38,23 +49,31 @@ struct OperatorView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(items: filteredItems, playlists: playlists, selection: $selectedID)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 228, max: 320)
+            SidebarView(libraryItems: filteredItems, playlists: playlists,
+                        selection: $selectedID,
+                        onChange: rebuildProgram,
+                        onDeletePlaylist: deletePlaylist,
+                        onAddItems: addItems)
+                .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 560)
         } detail: {
-            slideGrid
+            detailPane
                 .inspector(isPresented: $showInspector) {
                     InspectorView(item: selectedItem)
                         .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
                 }
                 .toolbar { toolbarContent }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search & go live…")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search titles & lyrics…")
         .frame(minWidth: 960, minHeight: 600)
+        .onChange(of: searchText) { _, query in scheduleSearch(query) }
+        .onChange(of: items.count) { _, _ in rebuildSearchIndex() }
         .onReceive(NotificationCenter.default.publisher(for: .slideEditorDidClose)) { _ in
             // The editor edits the live model in its own window; once it closes
             // we re-arm the program so the operator grid + audience output pick
             // up the edits. `rebuildProgram()` is idempotent.
             rebuildProgram()
+            // Content edits land here too, so refresh the search index to match.
+            rebuildSearchIndex()
         }
         .onChange(of: selectedID) { _, _ in
             rebuildProgram()
@@ -75,6 +94,7 @@ struct OperatorView: View {
                 selectedID = LastPosition.resolve(LastPosition.load(), in: modelContext)
             }
             rebuildProgram()
+            rebuildSearchIndex()
             installKeyMonitor()
         }
         .onDisappear(perform: removeKeyMonitor)
@@ -93,6 +113,25 @@ struct OperatorView: View {
         }
     }
 
+    /// Debounces the search field so filtering (which walks slide content) runs
+    /// after typing settles, mirroring the editor's rebuild debounce.
+    private func scheduleSearch(_ query: String) {
+        searchTask?.cancel()
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            debouncedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// Memoizes each item's flattened searchable text so the per-keystroke filter
+    /// is a dictionary lookup, not a fresh slide walk per item.
+    private func rebuildSearchIndex() {
+        searchIndex = Dictionary(
+            items.map { ($0.persistentModelID, $0.searchableText) },
+            uniquingKeysWith: { first, _ in first })
+    }
+
     private func rebuildProgram() {
         if let selectedItem {
             program = LiveState.programSlides(for: selectedItem)
@@ -103,6 +142,21 @@ struct OperatorView: View {
         }
         live.arm(program)
         VideoPrewarmer.shared.prewarm(live.nextProgramSlide?.videoCue)
+    }
+
+    /// The detail pane shows every slide of the selected playlist grouped per item
+    /// title, otherwise the slide grid for the selected item. Playlist editing lives
+    /// in the sidebar now; here a playlist is read-only (click a slide to go live).
+    @ViewBuilder
+    private var detailPane: some View {
+        if let selectedPlaylist {
+            PlaylistSlidesView(playlist: selectedPlaylist,
+                               liveSlideID: live.liveSlideID,
+                               onActivate: { live.goLive(id: $0) },
+                               onEdit: openSlideEditor)
+        } else {
+            slideGrid
+        }
     }
 
     /// The operator detail pane is always the slide grid now — all editing moved
@@ -205,6 +259,8 @@ struct OperatorView: View {
                 Button("New Text", systemImage: "text.alignleft") { newAuthoredItem(kind: .text) }
                 Divider()
                 Button("Import Media…", systemImage: "square.and.arrow.down") { importMedia() }
+                Divider()
+                Button("New Playlist", systemImage: "music.note.list") { newPlaylist() }
             } label: {
                 Label("Add", systemImage: "plus")
             }
@@ -240,6 +296,36 @@ struct OperatorView: View {
         }
         selectedID = item.persistentModelID
         openEditor(for: item)
+    }
+
+    /// Inserts a fresh empty playlist with a de-duplicated default name and selects
+    /// it. Playlists have no editor window — selection alone routes the detail pane
+    /// to the grouped slide grid and the sidebar's content pane for editing.
+    private func newPlaylist() {
+        let playlist = Playlist(name: PlaylistEditing.defaultPlaylistName(existing: playlists))
+        modelContext.insert(playlist)
+        selectedID = playlist.persistentModelID
+    }
+
+    /// Deletes a whole playlist (cascade removes its entries; the shared items are
+    /// untouched). Clears the selection first if it pointed at this playlist.
+    private func deletePlaylist(_ playlist: Playlist) {
+        if selectedID == playlist.persistentModelID { selectedID = nil }
+        modelContext.delete(playlist)
+        try? modelContext.save()
+    }
+
+    /// Drop handler for dragging Library items onto a playlist: resolves each dragged
+    /// item `uuid` against the live query, appends it as a new entry, then re-arms in
+    /// case the edited playlist is the one currently selected/live. Unknown ids (a
+    /// stray non-item text drop) are ignored.
+    private func addItems(_ uuidStrings: [String], to playlist: Playlist) {
+        for string in uuidStrings {
+            guard let item = items.first(where: { $0.uuid.uuidString == string }) else { continue }
+            let entry = PlaylistEditing.makeEntry(for: item, in: playlist)
+            modelContext.insert(entry)
+        }
+        rebuildProgram()
     }
 
     /// Opens a file picker, copies the chosen clip or image into the media library,

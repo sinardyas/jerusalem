@@ -98,6 +98,25 @@ final class Item {
         songSections.sorted { $0.order < $1.order }
     }
 
+    /// All human-readable text for this item, flattened for library search:
+    /// title/subtitle/Bible reference plus every slide's section label and text
+    /// element. Because ``ContentRebuilder`` materializes lyrics, sermon body, and
+    /// Bible verse text into ``SlideElement`` rows, walking the slides captures the
+    /// content uniformly (including manual edits) in one pass. Pure logic for
+    /// matching this string lives in ``LibrarySearch``.
+    var searchableText: String {
+        var parts: [String] = [title]
+        if let subtitle { parts.append(subtitle) }
+        if let bibleReference { parts.append(bibleReference) }
+        for slide in orderedSlides {
+            if let label = slide.sectionLabel { parts.append(label) }
+            for element in slide.orderedElements where element.kind == .text {
+                if let text = element.text { parts.append(text) }
+            }
+        }
+        return parts.joined(separator: "\n")
+    }
+
     /// Numeric aspect ratio derived from ``aspectRatio``. Defaults to 16:9 when
     /// missing or unparseable so the renderer can never end up dividing by zero.
     var aspectRatioValue: CGFloat {

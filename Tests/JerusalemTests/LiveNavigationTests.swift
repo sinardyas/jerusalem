@@ -92,4 +92,41 @@ final class LiveNavigationTests: XCTestCase {
         XCTAssertTrue(LibrarySearch.matches(title: "Amazing Grace", query: "AMAZING"))
         XCTAssertFalse(LibrarySearch.matches(title: "Amazing Grace", query: "psalm"))
     }
+
+    func testContentSearchMatching() {
+        let text = "Amazing Grace\nhow sweet the sound\nthat saved a wretch like me"
+        // Empty query matches everything.
+        XCTAssertTrue(LibrarySearch.matches(query: "", in: text))
+        XCTAssertTrue(LibrarySearch.matches(query: "   ", in: text))
+        // Single-word substring (case-insensitive).
+        XCTAssertTrue(LibrarySearch.matches(query: "WRETCH", in: text))
+        // All words, any order — even spread across lines.
+        XCTAssertTrue(LibrarySearch.matches(query: "sweet grace", in: text))
+        XCTAssertTrue(LibrarySearch.matches(query: "wretch amazing", in: text))
+        // Every token must be present; a missing word fails the whole query.
+        XCTAssertFalse(LibrarySearch.matches(query: "grace mercy", in: text))
+        XCTAssertFalse(LibrarySearch.matches(query: "psalm", in: text))
+    }
+
+    @MainActor
+    func testSearchableTextIncludesSlideContent() {
+        let container = try! ModelContainer(
+            for: Persistence.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let item = Item(kind: .song, title: "Hymn 1", subtitle: "J. Newton")
+        let slide = Slide(order: 0, sectionLabel: "Verse 1")
+        slide.elements = [SlideElement(kind: .text, text: "how sweet the sound")]
+        item.slides.append(slide)
+        context.insert(item)
+        try? context.save()
+
+        let haystack = item.searchableText
+        // Title, subtitle, section label, and slide text all indexed.
+        XCTAssertTrue(LibrarySearch.matches(query: "newton", in: haystack))
+        XCTAssertTrue(LibrarySearch.matches(query: "verse", in: haystack))
+        // Content-only query (not in the title) still finds the item.
+        XCTAssertTrue(LibrarySearch.matches(query: "sweet sound", in: haystack))
+        XCTAssertFalse(LibrarySearch.matches(query: "wretch", in: haystack))
+    }
 }

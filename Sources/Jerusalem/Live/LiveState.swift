@@ -33,6 +33,15 @@ final class LiveState {
         }
     }
 
+    /// One titled section of a playlist's program — the slides of a single entry's
+    /// item, used to render the grouped slide grid. Keyed on the `PlaylistEntry`'s
+    /// id so the same item appearing in two entries forms two distinct groups.
+    struct ProgramGroup: Identifiable, Equatable {
+        let id: PersistentIdentifier
+        let title: String
+        let slides: [ProgramSlide]
+    }
+
     enum Panic: Equatable { case none, black, clear, logo }
     enum Content: Equatable, Hashable { case empty, black, logo, slide(RenderableSlide), video(VideoCue) }
 
@@ -176,6 +185,20 @@ final class LiveState {
 
     static func programSlides(for playlist: Playlist) -> [ProgramSlide] {
         playlist.orderedEntries.compactMap(\.item).flatMap(programSlides(for:))
+    }
+
+    /// The playlist's program split into one titled group per entry, in running
+    /// order. `groupedProgram(for:).flatMap(\.slides)` equals
+    /// `programSlides(for: playlist)`, so the grouped grid and the armed flat
+    /// program share slide identities (click-to-go-live + live highlight align).
+    static func groupedProgram(for playlist: Playlist) -> [ProgramGroup] {
+        playlist.orderedEntries.compactMap { entry in
+            entry.item.map {
+                ProgramGroup(id: entry.persistentModelID,
+                             title: $0.title,
+                             slides: programSlides(for: $0))
+            }
+        }
     }
 }
 
