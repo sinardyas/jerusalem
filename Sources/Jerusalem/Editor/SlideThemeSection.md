@@ -1,0 +1,97 @@
+# `SlideThemeSection.swift`
+
+> The inspector's "Theme" section: shows a preview swatch and the theme name, a (stubbed) Change… picker, and a "Set as default style for new slides" button that copies the selected text element's typography into the item's theme.
+
+**Location:** `Sources/Jerusalem/Editor/SlideThemeSection.swift`
+**Role:** SwiftUI view (plus reusable `ThemePreviewSwatch` and a `ThemePickerSheet`)
+
+## What it does (plain English)
+
+A theme is the item-wide default look (background color, font, text color, bold) used when new slides are created. This section displays the current theme as a small "Aa" preview swatch with its name, offers a "Change…" button (which opens a picker sheet — currently just the one bundled "Default Dark" theme, since a full theme library is a later phase), and a primary action that pushes the *currently selected text element's* styling back into the theme so future slides inherit it.
+
+That last button is the real edit here: "Set as default style for new slides" takes whatever font/size/color the selected text box has and copies it onto `item.theme`. It's disabled unless a text element is selected, because there's nothing meaningful to copy from an image or shape.
+
+## Swift you'll meet in this file
+
+- `@Bindable var item: Item` — the SwiftData item whose `theme` is read and updated.
+- `var selectedElement: SlideElement?` — `SlideElement | null`; the optional selected object (may be nothing).
+- `var onChange: () -> Void` — parent callback after an edit.
+- `@State private var showThemePicker = false` — local boolean state (`useState(false)`) controlling the sheet.
+- A computed `var theme: Theme { ... }` with **lazy creation**: if `item.theme` is nil it makes a default, assigns it, and returns it. (`if let existing = item.theme { return existing }` unwraps an optional.)
+- Controls: `Button("Change…") { ... }` = a button; `.buttonStyle(.link)` / `.borderless` = link/flat styling; `Label(_, systemImage:)` = text + icon; `.disabled(...)` = greys out the control; `.sheet(isPresented:)` = a modal presented when a bool is true.
+- `@Environment(\.dismiss) private var dismiss` — pulls the "close this sheet" action from context (React-Context-like injection).
+- `ZStack` = layered children; `.font(.custom(name, size:).weight(...))` = a named font; `Color(hex:)` builds a color from a hex string.
+
+## Code walkthrough
+
+### The lazy `theme` accessor
+
+```swift
+private var theme: Theme {
+    if let existing = item.theme { return existing }
+    let fresh = Theme.makeDefault()
+    item.theme = fresh
+    return fresh
+}
+```
+
+Reading `theme` guarantees the item *has* one — it materializes and assigns a default on first access. Useful because the rest of the view can treat `theme` as non-optional.
+
+### The section body
+
+```swift
+InspectorSection(title: "Theme") {
+    HStack(alignment: .center, spacing: 10) {
+        ThemePreviewSwatch(theme: theme).frame(width: 80, height: 45)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(theme.name).font(.callout)
+            Button("Change…") { showThemePicker = true }.buttonStyle(.link)
+        }
+        Spacer()
+    }
+    Button {
+        guard let element = selectedElement, element.kind == .text else { return }
+        theme.copy(from: element)
+        onChange()
+    } label: {
+        Label("Set as default style for new slides", systemImage: "wand.and.stars")
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .buttonStyle(.borderless)
+    .disabled(selectedElement?.kind != .text)
+}
+.sheet(isPresented: $showThemePicker) {
+    ThemePickerSheet(currentTheme: theme, onPick: { _ in showThemePicker = false })
+}
+```
+
+The top row is the swatch + name + "Change…" (which just flips `showThemePicker`). The primary button guards that a **text** element is selected (`guard let element = selectedElement, element.kind == .text`), then calls `theme.copy(from: element)` to absorb its typography and fires `onChange()`. `.disabled(selectedElement?.kind != .text)` greys it out otherwise — note `selectedElement?.kind` uses optional chaining so a nil selection is also "not text." The `.sheet` presents `ThemePickerSheet` modally when the bool is true.
+
+### `ThemePreviewSwatch`
+
+A reusable mini-render of the theme: its background color with an "Aa" in its font/color:
+
+```swift
+ZStack {
+    Color(hex: theme.backgroundColorHex)
+    Text("Aa")
+        .font(.custom(theme.fontName, size: 20).weight(theme.isBold ? .bold : .regular))
+        .foregroundStyle(Color(hex: theme.textColorHex))
+}
+.clipShape(RoundedRectangle(cornerRadius: 4))
+```
+
+### `ThemePickerSheet`
+
+A placeholder picker — for the MVP it only ships the bundled default, so it renders a single selected row, a "More themes ship in a future update." note, and a Close button. `@Environment(\.dismiss)` provides `dismiss()` for the Close button; `.keyboardShortcut(.defaultAction)` makes it the Enter-key default.
+
+## How it connects
+
+It edits the `Item`'s `theme` (a SwiftData `Theme` model) — specifically by copying a selected text `SlideElement`'s typography into it. The parent inspector hosts it under the "Slide" tab and provides `item`, the optional `selectedElement`, and `onChange`. Because `theme` drives the default look of *future* slides (and the preview swatch), this is item-wide design state, not per-element. `onChange()` persists via `ModelContext` (undoable) and re-renders.
+
+## Gotchas / why it matters
+
+- **The default button only works on text elements** (`guard ... element.kind == .text`) and is disabled otherwise — copying typography from an image/shape is meaningless. Keep both the guard *and* the `.disabled` in sync.
+- The lazy `theme` getter mutates the model (`item.theme = fresh`) as a side effect of reading — fine here, but be aware that merely rendering the section can create the theme on a brand-new item.
+- The picker is intentionally a stub for the MVP; a real theme library is a later phase. Don't treat the single-row sheet as a bug.
+- Theme colors are stored as hex strings (`backgroundColorHex`, `textColorHex`) and rendered via `Color(hex:)`, consistent with the background section — same hex-as-source-of-truth convention.
