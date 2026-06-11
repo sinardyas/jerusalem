@@ -5,8 +5,9 @@ A guided index to every source file in this project. **Each `.swift` file has a 
 developer who knows JavaScript/TypeScript but is new to Swift. This page links them all,
 grouped by folder, so you have one place to browse from.
 
-> New to the codebase? Read [`CLAUDE.md`](CLAUDE.md) for the architecture overview first,
-> then follow the **Suggested reading order** below.
+> New to the codebase? Read [`CLAUDE.md`](CLAUDE.md) for the architecture rules and
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) for visual diagrams of how the app works, then
+> follow the **Suggested reading order** below.
 
 ## Suggested reading order
 
