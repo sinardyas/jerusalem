@@ -20,14 +20,14 @@ The crucial pattern here is **state injection**: `live` and `output` are created
 
 | Swift | JS/TS analogy |
 |---|---|
-| `@main struct JerusalemApp: App` | The program entry point; conforms to the `App` protocol. Like the root that boots the UI. |
-| `var body: some Scene` | Declares the app's **windows**. (`some Scene` = "some concrete Scene type" — an opaque return type.) |
-| `WindowGroup(...) { ... }` | Declares a window and its root SwiftUI view. |
+| `@main struct JerusalemApp: App` | The program entry point; conforms to the `App` protocol (shape: `@main struct X: App`). Like the root that boots the UI. |
+| `var body: some Scene` | Declares the app's **windows**. (`some Scene` = "some concrete Scene type" — an opaque return type, like returning `Scene` without naming the exact class.) |
+| `WindowGroup(...) { ... }` | Declares a window and its root SwiftUI view (trailing closure is the content). |
 | `@State private var live: LiveState` | Owned, persistent state held by the app — like `useState`, but here it owns the shared store object. |
-| `@Observable class LiveState` (defined elsewhere) | A shared, observable store — injected via `.environment(...)`, read via `@Environment(...)`. Like React Context. |
-| `private let container = ...` | A constant property (`const`), built once at startup. |
+| `@Observable class LiveState` (defined elsewhere) | A shared, observable store — injected via `.environment(...)`, read via `@Environment(...)`. Like a React Context value. |
+| `private let container = ...` | A constant property, built once at startup. Shape: `let name = value`. |
 | `init() { ... }` | A constructor. |
-| `_live = State(initialValue: ...)` | The low-level way to initialize a `@State` property inside `init` (the `_` prefix is the underlying storage). |
+| `_live = State(initialValue: ...)` | The low-level way to initialize a `@State` property inside `init` (the `_` prefix is the underlying storage box). |
 | `.environment(live)` | Inject a value into the SwiftUI environment for descendants — like a Context Provider. |
 | `.modelContainer(container)` | Attach the SwiftData DB to this window's view tree. |
 | `for: PersistentIdentifier.self` + `{ $itemID in ... }` | A window type that carries a value (the item's id) and binds it as `$itemID` to the window's content. |
@@ -44,7 +44,25 @@ struct JerusalemApp: App {
     private let container = Persistence.makeContainer()
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: the root bootstrap — like the module that ReactDOM-renders the app.
+// @State-owned stores ≈ singletons created once and provided via Context.
+class JerusalemApp /* : App */ {
+  private live!: LiveState;       // @State private var live
+  private output!: OutputController;
+  private readonly container = Persistence.makeContainer();  // built once
+}
+```
+
 `@main` marks this as where the program starts. It owns three things: the `live` store (what's on the audience screen), the `output` controller (the audience window placement), and the SwiftData `container` (built once via `Persistence.makeContainer()`).
+
+**Swift syntax:**
+- `@main` — marks the program's entry point (the runtime starts here). Like the module React renders at the root.
+- `struct JerusalemApp: App` — a `struct` (value type) that **conforms to** the `App` protocol (the `: App` part). Conforming to `App` is what requires a `body` returning scenes.
+- `@State private var live: LiveState` — `@State` is SwiftUI-owned, persistent storage tied to this view/app's lifetime; here it owns a shared store. `var` (mutable). Roughly `useState`, but holding an object the app owns. The type is declared without an initial value because `init()` sets it.
+- `private let container = Persistence.makeContainer()` — a `let` (constant) stored property initialized inline, run once when the app is created.
 
 ### The initializer
 
@@ -56,7 +74,22 @@ init() {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: const live = useMemo(() => new LiveState(), []) — created once, then shared.
+constructor() {
+  const liveState = new LiveState();
+  this.live = liveState;
+  this.output = new OutputController(liveState);  // output observes the SAME liveState
+}
+```
+
 Both stores are created here. Note `output` is given the *same* `liveState` instance — the output controller observes live state. The `_live = State(initialValue:)` form is just how you assign a `@State` property from inside `init` (`_live` is the property's underlying storage box). In JS terms: `this.live = liveState; this.output = new OutputController(liveState)`.
+
+**Swift syntax:**
+- `init()` — the constructor (no `function`/`constructor` keyword; just `init`).
+- `_live = State(initialValue: liveState)` — every `@State var live` has a hidden backing store named `_live`. Inside `init` you can't assign `live` directly, so you set the backing `_live` to a `State` value. The `_`-prefixed name is the property-wrapper's storage. There's no TS analog; conceptually it's `this.live = liveState`.
 
 ### Declaring the windows
 
@@ -72,7 +105,36 @@ var body: some Scene {
     .modelContainer(container)
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: body returns the app's windows; .environment(...) ≈ Context.Provider;
+// .modelContainer(...) ≈ providing the DB client to this subtree.
+get body() {
+  return [
+    window({ title: "Jerusalem", id: "operator" }, () => (
+      <EnvironmentProvider value={live}>
+        <EnvironmentProvider value={output}>
+          <OperatorView />
+        </EnvironmentProvider>
+      </EnvironmentProvider>
+    ))
+      .defaultSize(1280, 800)
+      .windowToolbarStyle("unified")
+      .modelContainer(container),
+    // ...second window below
+  ];
+}
+```
+
 `body` lists the app's windows. The first `WindowGroup` is the operator window: its root view is `OperatorView`, and `.environment(live)` / `.environment(output)` inject the shared stores so any descendant can read them. The modifiers set a default window size, a native unified toolbar, and attach the database.
+
+**Swift syntax:**
+- `var body: some Scene` — a **computed property** (no `()`; it recomputes when read) returning `some Scene`. `some Scene` is an **opaque return type**: "a single concrete type conforming to `Scene`, hidden from callers." Like declaring a return type of `Scene` without naming the exact class. (`some View` is the same idea for views.)
+- `WindowGroup("Jerusalem", id: "operator") { OperatorView() ... }` — declares a window; the **trailing closure** `{ ... }` is its root content. A trailing closure is a closure written *after* the call's parens (here the parens are the title/id args). Like passing a render function as the last argument.
+- `.environment(live)` — a **view modifier** that injects `live` into the environment for all descendants; they read it back with `@Environment(LiveState.self)`. This is the Context.Provider half of React Context. Modifiers chain (each returns a new view).
+- `.modelContainer(container)` — injects the SwiftData container into this scene's view tree (so `@Query`/`@Environment(\.modelContext)` work below). Like providing a DB client to a subtree.
+- `.defaultSize(...)`, `.windowToolbarStyle(.unified)` — more chained modifiers; `.unified` is leading-dot enum shorthand for `WindowToolbarStyle.unified`.
 
 ```swift
     WindowGroup("Slide Editor", id: "slide-editor", for: PersistentIdentifier.self) { $itemID in
@@ -86,7 +148,31 @@ var body: some Scene {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: a window "route" parameterized by an item id passed when it's opened.
+window({ title: "Slide Editor", id: "slide-editor", for: PersistentIdentifier }, ($itemID) => {
+  const itemID = $itemID;   // the value the window was opened with (may be null)
+  return (
+    <EnvironmentProvider value={live}>
+      <EnvironmentProvider value={output}>
+        <SlideEditorWindowRoot itemID={itemID} />
+      </EnvironmentProvider>
+    </EnvironmentProvider>
+  );
+})
+  .defaultSize(1320, 820)
+  .windowToolbarStyle("unified")
+  .modelContainer(container);
+```
+
 The second `WindowGroup` is the editor. The `for: PersistentIdentifier.self` part makes it a **value-carrying** window: it's opened with a specific item id (the comment notes the operator calls `openWindow(id:value:)` carrying the item's `PersistentIdentifier`). That id arrives as `$itemID` and is passed to `SlideEditorWindowRoot`. Carrying the *item's* id (not a slide's) means the editor can open even before any slides exist. It shares the **same** `container`, so edits flow back to the operator window when the editor closes.
+
+**Swift syntax:**
+- `for: PersistentIdentifier.self` — declares a **value-carrying window**: each instance is parameterized by a `PersistentIdentifier`. `PersistentIdentifier.self` is the *type* (metatype), telling `WindowGroup` what kind of value the window carries. Think of it as a route param's type.
+- `{ $itemID in ... }` — a closure whose parameter is `$itemID`. The `$`-prefixed name is a **binding** to the carried value; reading `itemID` (without `$`) inside gives the current value (which may be `nil` if the window opened without one). `x in` is closure-parameter syntax: everything before `in` is the params, after `in` is the body — like `(itemID) => { ... }`.
+- `SlideEditorWindowRoot(itemID: itemID)` — passes the resolved id into the editor's root view via a labeled argument.
 
 ## How it connects
 

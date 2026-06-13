@@ -35,16 +35,58 @@ SlideLayers.reorder(frontFirst: [c, b, a], from: IndexSet(integer: 2), to: 0)
 XCTAssertEqual(a.order, 2, "moved-to-front element gets the highest order")
 ```
 
+**TypeScript equivalent (Jest)**
+
+```ts
+// analogy: IndexSet(integer: 2) ≈ the source index from a list-move event.
+SlideLayers.reorder([c, b, a], new Set([2]), 0);   // (frontFirst, from, to)
+expect(a.order).toEqual(2);   // "moved-to-front element gets the highest order"
+```
+
+**Swift syntax:**
+- `SlideElement(kind: .text, order: 0)` — initializer call with labeled args (no `new`); `.text` is enum-case shorthand for `SlideElementKind.text`.
+- `IndexSet(integer: 2)` — an `IndexSet` value (a set of integer indices) holding just `2`. SwiftUI's `onMove` hands you the moved rows as an `IndexSet`. Closest TS analogue is a `Set<number>`.
+- `reorder(frontFirst:from:to:)` — argument labels read like prose: "reorder, front-first list `[c,b,a]`, from index 2, to 0." TS has no labels — positional args with a clarifying comment.
+- `XCTAssertEqual(a.order, 2, "msg")` — the trailing string is the failure message shown if it fails; Jest passes it differently (3rd arg or `// comment`).
+
 ### `testReorderMovesFrontElementToBack`
 The mirror: drag the front element `c` (display index 0) to the back (`to: 3`). Display becomes `[b, a, c]`, so `c.order == 0`, `a.order == 1`, `b.order == 2`. Note SwiftUI's move uses a `to:` index one past the end (`3`) to mean "after the last row."
+
+```swift
+SlideLayers.reorder(frontFirst: [c, b, a], from: IndexSet(integer: 0), to: 3)
+XCTAssertEqual(c.order, 0, "moved-to-back element gets order 0")
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+SlideLayers.reorder([c, b, a], new Set([0]), 3);   // to:3 = "after the last row"
+expect(c.order).toEqual(0);   // "moved-to-back element gets order 0"
+```
 
 ### `testRendererDrawsElementsInLayerOrder` `throws`
 Two opaque full-slide shapes, one black and one white. Rendered with `elements: [black, white]` (back-to-front), the **white** one is drawn last so the center reads near-white (`centerRed > 200`). Swapping to `[white, black]` makes the center near-black (`centerRed < 60`). This proves the single-pass renderer honors element order across *all* kinds, not just within a layer. Uses the private `centerRed` helper that reads the red channel of the center pixel from a raw RGBA buffer.
 
 ```swift
+let whiteOnTop = RenderableSlide(backgroundColorHex: "#222222", elements: [black, white])
+let a = try XCTUnwrap(SlideRenderer.makeImage(whiteOnTop, pixelSize: size))
 XCTAssertGreaterThan(centerRed(a), 200, "white shape on top → white center")
 XCTAssertLessThan(centerRed(b), 60, "black shape on top → black center")
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+const whiteOnTop = new RenderableSlide({ backgroundColorHex: "#222222", elements: [black, white] });
+// XCTUnwrap: makeImage returns CGImage|null — assert non-null, then use it.
+const a = SlideRenderer.makeImage(whiteOnTop, size);
+expect(a).not.toBeNull();
+expect(centerRed(a!)).toBeGreaterThan(200);   // "white shape on top → white center"
+expect(centerRed(b!)).toBeLessThan(60);       // "black shape on top → black center"
+```
+
+**Swift syntax:**
+- `try XCTUnwrap(...)` — `makeImage` returns `CGImage?` (optional); `XCTUnwrap` fails the test if `nil` and otherwise returns the unwrapped image. `try` because it can throw. TS: `not.toBeNull()` then use `a!`.
 
 ### `testLayerNameForEachKind`
 `SlideElement.layerName` rules:
@@ -55,6 +97,28 @@ XCTAssertLessThan(centerRed(b), 60, "black shape on top → black center")
 
 Catches an empty layer row, or a shape showing a raw enum name.
 
+```swift
+let rect = SlideElement(kind: .shape); rect.shapeType = .rectangle
+XCTAssertEqual(rect.layerName, "Rectangle")
+let ellipse = SlideElement(kind: .shape); ellipse.shapeType = .ellipse
+XCTAssertEqual(ellipse.layerName, "Ellipse")
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+const rect = new SlideElement({ kind: SlideElementKind.shape });
+rect.shapeType = ShapeType.rectangle;
+expect(rect.layerName).toEqual("Rectangle");
+const ellipse = new SlideElement({ kind: SlideElementKind.shape });
+ellipse.shapeType = ShapeType.ellipse;
+expect(ellipse.layerName).toEqual("Ellipse");
+```
+
+**Swift syntax:**
+- `let rect = ...; rect.shapeType = ...` — two statements on one line separated by `;`. Swift usually omits semicolons; they're only needed to share a line.
+- `.shape` / `.rectangle` / `.ellipse` — enum-case shorthand (`SlideElementKind.shape`, `ShapeType.rectangle`, …) with the type inferred from context.
+
 ## How it connects
 
 Exercises `SlideLayers.reorder`, the shared `SlideRenderer.makeImage`, and `SlideElement.layerName` / `shapeType` / `imageFilename`. Uses `RenderableElement` and `RenderableSlide` value snapshots to feed the renderer.
@@ -62,3 +126,15 @@ Exercises `SlideLayers.reorder`, the shared `SlideRenderer.makeImage`, and `Slid
 ## What it does NOT cover
 
 The actual drag-to-reorder interaction in the Layers panel, live re-rendering as you drag, and selection highlighting are hand-verified in the app. This suite covers the reorder math, the z-order rendering rule, and the label strings.
+
+## Glossary (Swift → TS/Jest/Node)
+
+- **`final class FooTests: XCTestCase`** → `describe("Foo", ...)`.
+- **`func testX()` / `throws`** → `it("x", ...)`; `throws` means a thrown error fails the test.
+- **`try XCTUnwrap(x)`** → assert non-null, then use the value.
+- **`IndexSet(integer:)`** → a set of integer indices; `// analogy:` the source index of a list-move event (`Set<number>`).
+- **Argument labels (`reorder(frontFirst:from:to:)`)** → no TS equivalent; positional args with a clarifying comment.
+- **`.shape` / `.rectangle` (enum shorthand)** → `EnumName.case` with the type inferred.
+- **`;` on a line** → only needed to put two statements on one line (Swift omits it otherwise).
+- **`XCTAssertEqual(a, b, "msg")`** → `toEqual` with a failure label.
+- **`RenderableSlide` / `RenderableElement`** → immutable value snapshots fed to the renderer (no live model references).

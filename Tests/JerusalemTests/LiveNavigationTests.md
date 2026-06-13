@@ -24,6 +24,52 @@ It also covers `LibrarySearch`, the pure matching rule behind the search box —
 ## The `makeProgram` helper
 A private `@MainActor` helper builds a real in-memory `Item` with `slideCount` slides (each with a text element unless `withText: false`), saves it, and returns `LiveState.programSlides(for:)` — an array of immutable `ProgramSlide` value snapshots. The comment notes these snapshots are independent of the container, so the container can deallocate without affecting them — this is the edit/live separation invariant in action.
 
+```swift
+@MainActor
+private func makeProgram(slideCount: Int, withText: Bool = true) -> [LiveState.ProgramSlide] {
+    let container = try! ModelContainer(
+        for: Persistence.schema,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    let context = ModelContext(container)
+    let item = Item(kind: .song, title: "Test")
+    for i in 0..<slideCount {
+        let slide = Slide(order: i, sectionLabel: "V\(i)")
+        if withText { slide.elements = [SlideElement(kind: .text, text: "line \(i)")] }
+        item.slides.append(slide)
+    }
+    context.insert(item)
+    try? context.save()
+    return LiveState.programSlides(for: item)
+}
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+// analogy: an in-memory SwiftData container ≈ a fresh in-memory test DB (better-sqlite3 :memory:).
+function makeProgram(slideCount: number, withText = true): ProgramSlide[] {
+  const container = new ModelContainer(Persistence.schema, { inMemory: true });
+  const context = new ModelContext(container);
+  const item = new Item({ kind: "song", title: "Test" });
+  for (let i = 0; i < slideCount; i++) {
+    const slide = new Slide({ order: i, sectionLabel: `V${i}` });
+    if (withText) slide.elements = [new SlideElement({ kind: "text", text: `line ${i}` })];
+    item.slides.push(slide);
+  }
+  context.insert(item);
+  context.save();
+  return LiveState.programSlides(item);
+}
+```
+
+**Swift syntax:**
+- `@MainActor private func makeProgram(slideCount: Int, withText: Bool = true) -> [LiveState.ProgramSlide]` — shape: `withText: Bool = true` is a default-valued parameter; `-> [T]` is the return type, `[T]` meaning `Array<T>`. Jest analog: `function makeProgram(slideCount: number, withText = true): ProgramSlide[]`.
+- `try!` — shape: *force-try* — run a throwing call and crash if it actually throws (used where setup is assumed safe). Jest analog: a call you don't wrap in `try/catch` because a failure should blow up the test.
+- `for i in 0..<slideCount` — shape: `0..<n` is a *half-open `Range`* (includes `0`, excludes `n`). Jest analog: `for (let i = 0; i < slideCount; i++)`.
+- `"V\(i)"` / `"line \(i)"` — shape: `\(…)` is *string interpolation*. Jest analog: a template literal `` `V${i}` ``.
+- `item.slides.append(slide)` — shape: `.append` pushes onto an array. Jest analog: `arr.push(slide)`.
+- `try? context.save()` — shape: `try?` runs a throwing call and yields `nil` on error (here the result is ignored). Jest analog: a `try { save() } catch {}` swallow.
+
 ## The tests, one by one
 
 ### `testArmDoesNotChangeOutput`
@@ -33,6 +79,19 @@ live.arm(makeProgram(slideCount: 3))
 XCTAssertEqual(live.content, .empty)
 XCTAssertNil(live.liveSlideID)
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+live.arm(makeProgram(3));
+// analogy: Swift enum case `.empty` ≈ a tagged-union value { type: "empty" }.
+expect(live.content).toEqual({ type: "empty" });
+expect(live.liveSlideID).toBeNull();
+```
+
+**Swift syntax:**
+- `live.content == .empty` — shape: `.empty` is *leading-dot syntax* — Swift infers the enum type (`LiveState.Content`) from context, so you write just the case. Jest analog: comparing against `{ type: "empty" }`.
+
 **Catches:** arming (loading) a program accidentally pushing slide 1 to the audience screen. Arming must be silent — you load the next song while the current one is still showing.
 
 ### `testNextStartsAdvancesAndClamps`
@@ -44,10 +103,39 @@ XCTAssertEqual(live.liveSlideID, program[0].id)   // first press starts at 0
 live.next()
 XCTAssertEqual(live.liveSlideID, program[2].id)   // clamps at the end
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+live.next();
+expect(live.liveSlideID).toEqual(program[0].id); // first press starts at 0
+live.next();
+expect(live.liveSlideID).toEqual(program[1].id);
+live.next();
+expect(live.liveSlideID).toEqual(program[2].id);
+live.next();
+expect(live.liveSlideID).toEqual(program[2].id); // clamps at the end
+live.previous();
+expect(live.liveSlideID).toEqual(program[1].id);
+```
+
 **Catches:** off-by-one navigation, the classic "first arrow press skips the opening slide," or running off the end into a crash/blank.
 
 ### `testGoLiveByID`
 Arms 3 slides and calls `goLive(id: program[2].id)` to jump straight to the last slide; asserts `liveSlideID` is now that id.
+
+```swift
+live.goLive(id: program[2].id)
+XCTAssertEqual(live.liveSlideID, program[2].id)
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+live.goLive(program[2].id);
+expect(live.liveSlideID).toEqual(program[2].id);
+```
+
 **Catches:** click-to-go-live (jumping by id, e.g. from the grid) landing on the wrong slide.
 
 ### `testBlackPanicThenResume`
@@ -59,6 +147,17 @@ XCTAssertNil(live.liveSlideID)
 live.next()                                       // nav key resumes
 XCTAssertEqual(live.liveSlideID, program[0].id)
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+live.setPanic("black"); // analogy: Swift `.black` enum case ≈ "black" tag
+expect(live.content).toEqual({ type: "black" });
+expect(live.liveSlideID).toBeNull();
+live.next(); // nav key resumes
+expect(live.liveSlideID).toEqual(program[0].id);
+```
+
 **Catches:** the panic Black button failing to blank the screen, or getting stuck black with no way to resume — both nightmare scenarios live.
 
 ### `testClearShowsBackgroundOnly`
@@ -69,10 +168,43 @@ guard case .slide(let renderable) = live.content else {
 }
 XCTAssertTrue(renderable.elements.isEmpty)
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+// analogy: `guard case .slide(let renderable)` ≈ narrowing a discriminated union by its tag.
+if (live.content.type !== "slide") {
+  throw new Error("expected a background-only slide"); // XCTFail
+}
+const renderable = live.content.renderable;
+expect(renderable.elements.length).toBe(0); // .isEmpty
+```
+
+**Swift syntax:**
+- `guard case .slide(let renderable) = live.content else { … }` — shape: *pattern-match a guard* — "if `content` is the `.slide` case, bind its payload to `renderable` and continue; otherwise run the `else` (which must exit)." Jest analog: narrow a discriminated union by `type`, else `throw`/`return`.
+- `return XCTFail("…")` — shape: `XCTFail` records a failure; `return`-ing it satisfies the `else`'s requirement to exit. Jest analog: `throw new Error("…")`.
+
 **Catches:** "Clear" wiping the whole screen instead of just the text, or doing nothing.
 
 ### `testSearchMatching`
 Tests `LibrarySearch.matches(title:query:)`: empty query matches, `"grace"` matches `"Amazing Grace"` (substring), `"AMAZING"` matches (case-insensitive), `"psalm"` does not.
+
+```swift
+XCTAssertTrue(LibrarySearch.matches(title: "Amazing Grace", query: ""))
+XCTAssertTrue(LibrarySearch.matches(title: "Amazing Grace", query: "grace"))
+XCTAssertTrue(LibrarySearch.matches(title: "Amazing Grace", query: "AMAZING"))
+XCTAssertFalse(LibrarySearch.matches(title: "Amazing Grace", query: "psalm"))
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+expect(LibrarySearch.matches("Amazing Grace", "")).toBe(true);
+expect(LibrarySearch.matches("Amazing Grace", "grace")).toBe(true);
+expect(LibrarySearch.matches("Amazing Grace", "AMAZING")).toBe(true); // case-insensitive
+expect(LibrarySearch.matches("Amazing Grace", "psalm")).toBe(false);
+```
+
 **Catches:** case-sensitive or non-substring title search.
 
 ### `testContentSearchMatching`
@@ -81,10 +213,43 @@ Tests `LibrarySearch.matches(query:in:)` against multi-line lyric text. Empty/wh
 XCTAssertTrue(LibrarySearch.matches(query: "sweet grace", in: text))
 XCTAssertFalse(LibrarySearch.matches(query: "grace mercy", in: text))
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+const text = "Amazing Grace\nhow sweet the sound\nthat saved a wretch like me";
+expect(LibrarySearch.matches("", text)).toBe(true);     // empty matches
+expect(LibrarySearch.matches("   ", text)).toBe(true);  // whitespace matches
+expect(LibrarySearch.matches("WRETCH", text)).toBe(true); // single word, case-insensitive
+expect(LibrarySearch.matches("sweet grace", text)).toBe(true);  // all words, any order/line
+expect(LibrarySearch.matches("wretch amazing", text)).toBe(true);
+expect(LibrarySearch.matches("grace mercy", text)).toBe(false); // "mercy" absent → fails
+expect(LibrarySearch.matches("psalm", text)).toBe(false);
+```
+
 **Catches:** AND-vs-OR search bugs — a search that returns matches when only *some* words are present would flood the operator with wrong results.
 
 ### `testSearchableTextIncludesSlideContent`
 Builds an in-memory `Item` with a title, subtitle, a slide section label, and slide text, then queries its `searchableText`. Confirms the title (`"newton"` from the subtitle), the section label (`"verse"`), and the slide body (`"sweet sound"`) are all searchable, while an absent word (`"wretch"`) is not.
+
+```swift
+let haystack = item.searchableText
+XCTAssertTrue(LibrarySearch.matches(query: "newton", in: haystack))
+XCTAssertTrue(LibrarySearch.matches(query: "verse", in: haystack))
+XCTAssertTrue(LibrarySearch.matches(query: "sweet sound", in: haystack))
+XCTAssertFalse(LibrarySearch.matches(query: "wretch", in: haystack))
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+const haystack = item.searchableText;
+expect(LibrarySearch.matches("newton", haystack)).toBe(true);     // from subtitle
+expect(LibrarySearch.matches("verse", haystack)).toBe(true);      // section label
+expect(LibrarySearch.matches("sweet sound", haystack)).toBe(true); // slide body
+expect(LibrarySearch.matches("wretch", haystack)).toBe(false);    // absent
+```
+
 **Catches:** search indexing only the title and missing lyrics/labels — meaning you couldn't find a song by a line you remember.
 
 ## How it connects
@@ -92,3 +257,19 @@ Exercises `LiveState` (`arm`, `next`, `previous`, `goLive`, `setPanic`, `clear`,
 
 ## What it does NOT cover
 The actual on-screen result. `LiveState` here is checked as pure state; the real `OutputController`/`NSWindow` that displays `content`, and the keyboard `NSEvent` monitor in `OperatorView` that calls these methods, are not exercised. Whether the audience screen visibly goes black, or whether key presses are wired correctly, is verified by running the app on hardware.
+
+## XCTest → Jest glossary
+- `final class X: XCTestCase { }` — shape: subclass = test suite. Jest: `describe("X", () => { … })`.
+- `func testFoo()` — shape: `test`-prefixed, auto-run. Jest: `it("foo", () => { … })`.
+- `@MainActor` — shape: run on the main thread (here for `ModelContext`). Jest: `// runs on the main thread` (no real equivalent).
+- `XCTAssertEqual(a, b)` — Jest: `expect(a).toEqual(b)`.
+- `XCTAssertNil(x)` — Jest: `expect(x).toBeNull()`.
+- `XCTAssertTrue / XCTAssertFalse(x)` — Jest: `expect(x).toBe(true)` / `.toBe(false)`.
+- `XCTFail("m")` — shape: unconditionally record a failure. Jest: `throw new Error("m")` (or `fail("m")`).
+- `try!` / `try?` — shape: force-try (crash on throw) / optional-try (`nil` on throw). Jest: an unguarded call vs. a `try/catch` swallow.
+- `guard case .slide(let x) = value else { … }` — shape: pattern-match an enum case and bind its payload, else exit. Jest: narrow a discriminated union by `type`, else `throw`/`return`.
+- `enum` + leading-dot case (`.empty`, `.black`, `.slide(...)`) — shape: a tagged union; cases may carry associated values. Jest: `{ type: "empty" }` / `{ type: "slide", renderable }`.
+- `0..<n` / `a...b` — shape: half-open / closed integer ranges. Jest: a `for` loop / inclusive bounds.
+- `[T]` — shape: `Array<T>`. Jest: `T[]`.
+- `"\(x)"` — shape: string interpolation. Jest: `` `${x}` ``.
+- `ModelConfiguration(isStoredInMemoryOnly: true)` — shape: throwaway in-memory store. `// analogy:` in-memory SQLite (`:memory:`).

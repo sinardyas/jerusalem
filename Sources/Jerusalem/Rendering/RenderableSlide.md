@@ -17,16 +17,16 @@ The two `init(_:)` constructors at the bottom are the bridge from the live, muta
 
 | Swift | JS/TS meaning |
 | --- | --- |
-| `struct RenderableSlide { ... }` | A value type — copied on every pass/assignment (not shared by reference) |
-| `var backgroundColorHex: String` | A mutable field of type `string`. (`var` = `let` in JS; `let` would be `const`) |
-| `: Equatable, Hashable, Sendable` | Protocols (≈ TS interfaces): `Equatable` gives `==`, `Hashable` lets it be a `Map`/`Set` key, `Sendable` means "safe to move across threads" |
-| `var elements: [RenderableElement]` | `RenderableElement[]` — an array |
-| `VideoCue? = nil` | `VideoCue | null`, defaulting to `null` |
+| `struct RenderableSlide { ... }` | A value type — copied on every pass/assignment (not shared by reference). TS analog: an immutable `interface`/`readonly` class, but Swift copies it for you on assignment, like spreading `{...obj}` everywhere automatically |
+| `var backgroundColorHex: String` | `let backgroundColorHex: string` (mutable). Shape: `var name: Type`. Swift's `var` = JS `let`; Swift's `let` = JS `const` |
+| `: Equatable, Hashable, Sendable` | Protocol conformances (≈ `implements SomeInterface`): `Equatable` gives `==`, `Hashable` lets it be a `Map`/`Set` key, `Sendable` means "safe to move across threads" |
+| `var elements: [RenderableElement]` | `[T]` is `T[]` — an array |
+| `VideoCue? = nil` | `T?` is `T | null`; `= nil` is a default value, so `backgroundVideo?: VideoCue` defaulting to `null` |
 | `URL?` | `URL | null` |
-| `extension RenderableSlide { ... }` | Add methods/initializers to an existing type, like reopening a class to bolt on more |
-| `init(_ slide: Slide)` | A constructor; the `_` means the argument is positional (no label at the call site) |
-| `if slide.backgroundKind == .video, let filename = ...` | Combined null-check + bind; both conditions must pass |
-| `.map(RenderableElement.init)` | `array.map(x => new RenderableElement(x))` — passing the constructor as the callback |
+| `extension RenderableSlide { ... }` | Reopen an existing type to add methods/initializers — like declaration-merging an `interface` or patching a prototype, but type-safe |
+| `init(_ slide: Slide)` | A constructor (`constructor(slide)`); the `_` makes the argument positional — no label at the call site, so you write `RenderableSlide(slide)` not `RenderableSlide(slide: slide)` |
+| `if slide.backgroundKind == .video, let filename = ...` | Comma-chained condition = combined boolean test + optional bind; all clauses must pass (like `if (kind === 'video' && (filename = x) != null)`) |
+| `.map(RenderableElement.init)` | `array.map(x => new RenderableElement(x))` — passing the constructor itself as the callback |
 
 ## Code walkthrough
 
@@ -44,7 +44,27 @@ struct RenderableSlide: Equatable, Hashable, Sendable {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// A value type: treat it as deep-frozen and copied on every assignment.
+interface RenderableSlide {
+  readonly backgroundKind: SlideBackgroundKind;   // defaults to "color"
+  readonly backgroundColorHex: string;
+  readonly elements: RenderableElement[];
+  readonly backgroundVideo: VideoCue | null;      // default null
+  readonly backgroundImageURL: URL | null;        // default null
+  readonly gradientHex2: string | null;           // default null
+  readonly gradientAngle: number;                 // default 135
+}
+```
+
 The defaults (`= .color`, `= nil`, `= 135`) mean those fields are optional at construction — a slide is a solid color unless told otherwise. `backgroundVideo` and `backgroundImageURL` are only "live" when `backgroundKind` is `.video` / `.image` respectively (the comments spell this out). For a video background the renderer deliberately leaves the slide transparent so the looping video shows through behind the text.
+
+**Swift syntax:**
+- `struct` — a **value type**: assigning or passing one *copies* it (like `{...obj}` on every move). This copy-on-pass is the whole edit/live safety mechanism — there is no shared mutable reference. Contrast with `class` (reference type, shared like JS objects).
+- `var foo: T = default` — `default` makes the field optional at the call site, just like `foo: T = default` in a TS constructor or an optional with a fallback.
+- `: Equatable, Hashable, Sendable` — protocol conformances; the compiler **auto-synthesizes** `==` and `hashValue` from the stored fields (no boilerplate), which is why this type can be a `Map` key and be value-compared.
 
 `RenderableElement` is one item on the slide. Note the **normalized coordinates**:
 
@@ -57,6 +77,20 @@ struct RenderableElement: Equatable, Hashable, Sendable {
     var width: Double
     var height: Double
     ...
+}
+```
+
+**TypeScript equivalent**
+
+```ts
+interface RenderableElement {
+  readonly kind: SlideElementKind;
+  readonly text: string | null;
+  readonly x: number;       // 0..1 fraction, top-left origin
+  readonly y: number;       // 0..1
+  readonly width: number;   // 0..1
+  readonly height: number;  // 0..1
+  // ...font, color, alignment, bold/italic/underline, shadow, stroke, shape fields
 }
 ```
 
@@ -81,6 +115,37 @@ init(_ slide: Slide) {
         ...)
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// Lives in an `extension`, i.e. a second constructor bolted onto the interface.
+function RenderableSlide(slide: Slide): RenderableSlide {
+  let motionBackground: VideoCue | null = null;
+  const filename = slide.backgroundVideoFilename;          // string | null
+  if (slide.backgroundKind === "video" &&
+      filename != null &&
+      MediaImport.kind(extOf(filename)) === "video") {
+    motionBackground = {
+      url: MediaStorage.url(filename),
+      loops: true, muted: true, endBehavior: "hold",
+    };
+  }
+  // ...
+  return {
+    backgroundKind: slide.backgroundKind,
+    backgroundColorHex: slide.backgroundColorHex,
+    elements: slide.orderedElements.map(e => RenderableElement(e)), // ctor as callback
+    // ...
+  };
+}
+```
+
+**Swift syntax:**
+- `init(_ slide: Slide)` — a constructor. The `_` before `slide` means **no argument label** at the call site: callers write `RenderableSlide(slide)`. (Without `_`, they'd write `RenderableSlide(slide: slide)`.)
+- `if A, let filename = B, C { ... }` — comma-separated clauses are **all AND-ed**. The middle `let filename = ...` is an *optional binding*: it both null-checks `B` and binds the unwrapped value to `filename` for the body — like `if (A && (filename = B) != null && C)`.
+- `self.init(...)` — one initializer delegating to another (the member-wise one), i.e. `return { ...these fields }`.
+- `.map(RenderableElement.init)` — passing the **constructor itself** as the map callback, exactly like `.map(RenderableElement)` / `.map(x => new RenderableElement(x))` in JS.
 
 It only wires up a motion background if the kind is `.video` *and* the stored filename actually is a video file — a defensive check so a stale/mismatched filename can't produce a broken cue. The line `elements: slide.orderedElements.map(RenderableElement.init)` snapshots every element by running each through the `RenderableElement(_:)` constructor, which simply copies all fields across one-to-one.
 

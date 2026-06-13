@@ -17,15 +17,15 @@ The cache key combines *which slide* with *what pixel size*, because the same sl
 
 | Swift | JS/TS meaning |
 | --- | --- |
-| `@MainActor` | Everything here must run on the main/UI thread (enforced by the compiler) |
-| `final class SlidePrewarmer` | A reference type (shared, not copied); `final` = cannot be subclassed |
-| `static let shared = SlidePrewarmer()` | A module-level singleton instance, like `export const shared = new SlidePrewarmer()` |
-| `private struct Key: Hashable` | A value-type compound key usable in a dictionary (`Hashable` ≈ valid `Map` key) |
-| `private var cache: [Key: CGImage] = [:]` | `private cache: Map<Key, CGImage> = {}` — a dictionary from key to bitmap |
-| `CGImage` | Apple's low-level bitmap image type |
-| `func image(for slide:..., pixelSize:) -> CGImage?` | Returns `CGImage | null` |
-| `guard let slide else { return nil }` | Early-return null-check (`if (!slide) return null`) |
-| `@discardableResult` | "Caller may ignore the return value" without a warning |
+| `@MainActor` | An attribute pinning everything to the main/UI thread (compiler-enforced) — no JS equivalent; think "all methods implicitly run on the UI event loop" |
+| `final class SlidePrewarmer` | A reference type (shared, not copied), like any JS `class`; `final` = cannot be subclassed |
+| `static let shared = SlidePrewarmer()` | A module-level singleton — `static shared = new SlidePrewarmer()` exposed once |
+| `private struct Key: Hashable` | A value-type compound key usable in a dictionary (`Hashable` ≈ a valid `Map` key); shape: `struct Name: Hashable { ... }` |
+| `private var cache: [Key: CGImage] = [:]` | `private cache = new Map<Key, CGImage>()`; `[K: V]` is a dictionary, `[:]` is the empty literal |
+| `CGImage` | Apple's low-level bitmap image type (no TS equivalent; treat as an opaque bitmap handle) |
+| `func image(for slide:..., pixelSize:) -> CGImage?` | Returns `CGImage | null`; the `for`/`pixelSize:` are argument labels, not types |
+| `guard let slide else { return nil }` | Early-return null-check that also unwraps — `if (slide == null) return null;` then `slide` is non-null below |
+| `@discardableResult` | "Caller may ignore the return value" without a warning (no TS equivalent) |
 
 ## Code walkthrough
 
@@ -48,13 +48,44 @@ final class SlidePrewarmer {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// @MainActor analogy: imagine every method below implicitly runs on the UI thread.
+class SlidePrewarmer {
+  static readonly shared = new SlidePrewarmer();
+
+  // value-type compound key — must serialize to a stable Map key (see keyFor)
+  // interface Key { slide: RenderableSlide; width: number; height: number }
+
+  private cache = new Map<string, CGImage>();   // key string built from Key
+  private order: string[] = [];                 // insertion order, for LRU
+  private readonly limit = 6;
+}
+```
+
 `Key` bundles the slide snapshot with integer pixel dimensions. This works because `RenderableSlide` is `Hashable` — the cache literally hashes the whole slide's appearance, so any change to the slide produces a different key (and thus a fresh render).
+
+**Swift syntax:**
+- `@MainActor` — pins the whole class to the main thread; the compiler rejects calls from background tasks. (Required because the renderer it calls does AppKit text drawing, which is main-thread-only.)
+- `final class` — a reference type (shared like a JS object), `final` = no subclasses.
+- `static let shared = SlidePrewarmer()` — the singleton instance; `let` = immutable binding (`const`).
+- `private struct Key: Hashable` — a nested **value-type** key. Because Swift dictionaries hash by value, the compiler-synthesized `Hashable` lets a whole `RenderableSlide` participate in the key (in TS you'd serialize it to a string first — see `keyFor`).
+- `[Key: CGImage]` / `[:]` — dictionary type and empty-dictionary literal; the array literal `[]` is the empty list.
 
 Lookup is a plain dictionary read:
 
 ```swift
 func image(for slide: RenderableSlide, pixelSize: CGSize) -> CGImage? {
     cache[keyFor(slide, pixelSize: pixelSize)]
+}
+```
+
+**TypeScript equivalent**
+
+```ts
+image(slide: RenderableSlide, pixelSize: CGSize): CGImage | null {
+  return this.cache.get(this.keyFor(slide, pixelSize)) ?? null;
 }
 ```
 
@@ -72,7 +103,27 @@ func prewarm(_ slide: RenderableSlide?, pixelSize: CGSize) -> CGImage? {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// @discardableResult: callers may ignore the return without a lint warning.
+prewarm(slide: RenderableSlide | null, pixelSize: CGSize): CGImage | null {
+  if (slide == null) return null;                 // guard let slide
+  const key = this.keyFor(slide, pixelSize);
+  const existing = this.cache.get(key);
+  if (existing != null) return existing;          // fast path: cache hit
+  const rendered = SlideRenderer.makeImage(slide, pixelSize);
+  if (rendered == null) return null;              // renderer failed
+  this.store(rendered, key);
+  return rendered;
+}
+```
+
 Step by step: bail if there's no slide; build the key; return the cached bitmap if present (the fast path); otherwise call the one true renderer, store the result, and return it. Because it returns the image, a caller can both *warm the cache for later* and *use the image now* in one call — which is exactly how `RenderableSlideView` uses it.
+
+**Swift syntax:**
+- `guard let slide else { return nil }` — the **early-exit** form of optional binding: if `slide` is `nil`, run the `else` (which must leave the scope); otherwise `slide` is unwrapped and usable for the rest of the function. Reads as "I require a slide, else give up."
+- `if let existing = cache[key] { ... }` — bind-and-test: enter the block only if the dictionary lookup returned non-`nil`, with the value bound to `existing`.
 
 LRU eviction lives in `store`:
 
@@ -86,6 +137,20 @@ private func store(_ image: CGImage, for key: Key) {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// A Map-based LRU: append on store, drop from the front when over the limit.
+private store(image: CGImage, key: string): void {
+  this.cache.set(key, image);
+  this.order.push(key);
+  while (this.order.length > this.limit) {
+    const oldest = this.order.shift()!;   // removeFirst()
+    this.cache.delete(oldest);
+  }
+}
+```
+
 Every store appends the key to `order`; once `order` exceeds `limit`, it drops the front (oldest) keys until back under the cap. `clear()` empties everything (used by tests), and `cachedCount` exposes the size for assertions.
 
 `keyFor` just rounds the floating-point pixel size to integers so near-identical sizes collapse to the same key:
@@ -94,6 +159,17 @@ Every store appends the key to `order`; once `order` exceeds `limit`, it drops t
 Key(slide: slide,
     width: Int(pixelSize.width.rounded()),
     height: Int(pixelSize.height.rounded()))
+```
+
+**TypeScript equivalent**
+
+```ts
+private keyFor(slide: RenderableSlide, pixelSize: CGSize): string {
+  const w = Math.round(pixelSize.width);
+  const h = Math.round(pixelSize.height);
+  // serialize the value-type Key into a stable Map key
+  return `${hashSlide(slide)}|${w}x${h}`;
+}
 ```
 
 ## How it connects

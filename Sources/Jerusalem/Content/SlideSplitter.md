@@ -17,12 +17,12 @@ Because it's a caseless `enum` with no SwiftData or UI dependencies, it's direct
 
 | Swift | JS/TS equivalent |
 |---|---|
-| `struct SlideDraft: Equatable, Sendable` | a value record (copied); `Equatable` = `==` works (great for test assertions) |
+| `struct SlideDraft: Equatable, Sendable` | a value record (copied); `Equatable` = `==` works (great for test assertions). Model as a TS `interface` |
 | `var sectionLabel: String?` | `sectionLabel: string \| null` |
 | `enum SlideSplitter { static func split(...) }` | `export const SlideSplitter = { split() {...} }` |
 | three `split(...)` overloads | overloading by argument labels/types — Swift picks the right one |
 | `max(1, linesPerSlide)` | `Math.max(1, linesPerSlide)` — guard against 0 |
-| `chunks.enumerated().map { index, chunk in ... }` | `chunks.map((chunk, index) => ...)` |
+| `chunks.enumerated().map { index, chunk in ... }` | `chunks.entries()` → `.map((chunk, index) => ...)` |
 | `index == 0 ? label : nil` | ternary |
 | `.components(separatedBy: "\n\n")` | `str.split("\n\n")` (paragraphs) |
 | `.components(separatedBy: .newlines)` | `str.split(/\r?\n/)` |
@@ -42,6 +42,19 @@ struct SlideDraft: Equatable, Sendable {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+interface SlideDraft {
+  sectionLabel: string | null; // only the first slide of a section is labeled
+  text: string;
+}
+```
+
+**Swift syntax:**
+- `struct SlideDraft: Equatable, Sendable` — a *value type* (copied on assignment, never shared). `Equatable` synthesizes `==` so tests can assert exact draft arrays; `Sendable` marks it thread-safe to pass around. In TS it's just an `interface`.
+- `var sectionLabel: String?` — optional field; `String | null`.
+
 **Songs.** For each parsed section, build its label, chunk the lyrics, and attach the label to only the first chunk. Empty sections still produce one placeholder slide so the operator can navigate to them:
 
 ```swift
@@ -55,6 +68,24 @@ for (index, chunk) in chunks.enumerated() {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+const chunks = chunkLines(section.lyrics, perSlide);
+if (chunks.length === 0) {
+  drafts.push({ sectionLabel: label, text: "" });
+  continue;
+}
+for (const [index, chunk] of chunks.entries()) {
+  drafts.push({ sectionLabel: index === 0 ? label : null, text: chunk });
+}
+```
+
+**Swift syntax:**
+- `for (index, chunk) in chunks.enumerated()` — `.enumerated()` yields `(index, element)` tuples (like JS `.entries()`); the `for` loop destructures each into `index` and `chunk`. Note Swift's order is `(index, element)`.
+- `index == 0 ? label : nil` — a ternary; `label` is `String?`, so the whole expression is `String?`.
+- `continue` — skip to the next loop iteration, same as JS.
+
 **Bible.** One slide per verse — no mid-verse splitting (the renderer auto-fits long verses instead). Each slide gets a footer with the reference + uppercased translation tag:
 
 ```swift
@@ -64,6 +95,22 @@ return bibleVerses.map { verse in
                       text: "\(verse.text)\n\n\(footer)")
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+return bibleVerses.map((verse) => {
+  const footer = `— ${verse.reference} (${footerTag})`;
+  return {
+    sectionLabel: verse.reference,
+    text: `${verse.text}\n\n${footer}`,
+  };
+});
+```
+
+**Swift syntax:**
+- `bibleVerses.map { verse in ... }` — trailing-closure `map` with an explicit parameter name `verse` (instead of `$0`), useful when the body is multi-line.
+- `"\(verse.text)\n\n\(footer)"` — string interpolation `\(...)` is the template-literal `${...}`.
 
 **Sermon / text.** A title slide first, then one slide per blank-line-separated paragraph, with long paragraphs further chunked by `linesPerSlide`. Each paragraph's first chunk is labeled `"Point N"`:
 
@@ -81,6 +128,27 @@ for (paragraphIndex, paragraph) in paragraphs.enumerated() {
     }
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+const paragraphs = body
+  .split("\n\n")
+  .map((p) => p.trim())
+  .filter((p) => p.length > 0);
+
+for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+  const chunks = chunkLines(paragraph, perSlide);
+  for (const [chunkIndex, chunk] of chunks.entries()) {
+    const label = chunkIndex === 0 ? `Point ${paragraphIndex + 1}` : null;
+    drafts.push({ sectionLabel: label, text: chunk });
+  }
+}
+```
+
+**Swift syntax:**
+- `.components(separatedBy: "\n\n")` — split on a literal substring (paragraph breaks), like `str.split("\n\n")`.
+- `.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }` — `$0` is the implicit element; `.whitespacesAndNewlines` is a predefined `CharacterSet`, so this is `.trim()`.
 
 **The line-chunker (shared).** Splits a block into newline-joined groups of at most `perSlide` lines. It trims each line of spaces/tabs (but keeps blank lines *between* content, which matter in hymn layout), and drops leading/trailing blanks:
 
@@ -106,6 +174,37 @@ if !current.isEmpty {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+const lines = text
+  .split(/\r?\n/)
+  .map((l) => l.replace(/^[ \t]+|[ \t]+$/g, "")); // trim only spaces/tabs
+while (lines.length > 0 && lines[0] === "") lines.shift();        // drop leading blanks
+while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop(); // drop trailing
+if (lines.length === 0) return [];
+
+const chunks: string[] = [];
+let current: string[] = [];
+for (const line of lines) {
+  current.push(line);
+  if (current.length >= perSlide) {
+    chunks.push(current.join("\n"));
+    current = [];
+  }
+}
+if (current.length > 0) {
+  chunks.push(current.join("\n"));
+}
+```
+
+**Swift syntax:**
+- `var lines = ...` — `var` makes it mutable (we `removeFirst()`/`removeLast()` later); `let` would be a `const`.
+- `.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))` — trims only the characters in the custom set (space, tab) — *not* newlines — so blank lines survive as `""`. The TS analog is a regex that strips leading/trailing spaces and tabs only.
+- `while lines.first?.isEmpty == true { ... }` — `lines.first` is `String?` (nil when empty); `?.isEmpty` is `Bool?`; comparing `== true` is true only when the line *exists and* is empty. When `lines` runs out, `first` is nil, `?.isEmpty` is nil, `nil == true` is false → loop stops. This neatly avoids an out-of-bounds check.
+- `guard !lines.isEmpty else { return [] }` — early-return an empty array if nothing's left.
+- `current.joined(separator: "\n")` — `arr.join("\n")`.
+
 **Labeling.** `displayLabel` shows a section's ordinal for verses always, and for other kinds only when numbered:
 
 ```swift
@@ -114,6 +213,18 @@ if let number = section.number {
 }
 return section.kind.displayName                      // "Chorus"
 ```
+
+**TypeScript equivalent**
+
+```ts
+if (section.number != null) {
+  return `${section.kind.displayName} ${section.number}`; // "Verse 2"
+}
+return section.kind.displayName;                          // "Chorus"
+```
+
+**Swift syntax:**
+- `if let number = section.number { ... }` — unwraps the optional `number` into a non-optional `number` for the `if` body; if nil, falls through to the unlabeled `return`. Like `if (section.number != null) { ... }`.
 
 **Worked example: a 4-line verse with `linesPerSlide == 2`**
 - `chunkLines` → `["line1\nline2", "line3\nline4"]` (two chunks).

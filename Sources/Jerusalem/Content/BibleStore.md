@@ -19,7 +19,7 @@ There is no write side here — scripture is read-only after the initial seed. T
 |---|---|
 | `@MainActor enum BibleStore` | a namespace pinned to the main thread (so all DB access stays single-threaded by the project's rules) |
 | `ModelContext` | a SwiftData DB session — your handle for queries (like a Prisma client / DB connection) |
-| `FetchDescriptor<BibleVerse>` | a typed query object: *what* table + *which* rows + *how* to sort |
+| `FetchDescriptor<BibleVerse>` | a typed query object: *what* table + *which* rows + *how* to sort (like a Prisma `findMany({ where, orderBy })`) |
 | `#Predicate { verse in ... }` | the `WHERE` clause, written as a closure; `&&` is logical AND |
 | `SortDescriptor(\.number)` | `ORDER BY number ASC`; `\.number` is a key-path (like `v => v.number`) |
 | `try? context.fetch(descriptor)` | run the query; `try?` turns a thrown error into `nil` |
@@ -49,6 +49,33 @@ if let range = reference.verses {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: a Prisma-style findMany with where + orderBy.
+if (reference.verses != null) {
+  const low = reference.verses.lower;
+  const high = reference.verses.upper;
+  const rows = await prisma.bibleVerse.findMany({
+    where: {
+      translation: translationKey,
+      book,
+      chapter,
+      number: { gte: low, lte: high },
+    },
+    orderBy: { number: "asc" },
+  }).catch(() => null);          // try? → swallow errors into null
+  return rows ?? [];             // (try? ...) ?? []
+}
+```
+
+**Swift syntax:**
+- `@MainActor enum BibleStore` — the `@MainActor` attribute pins every member to the main thread, so callers don't juggle threads. A caseless `enum` again = a static-only namespace (`export const BibleStore = { ... }`).
+- `FetchDescriptor<BibleVerse>` — `<BibleVerse>` is a *generic type parameter* fixing the row type, like `findMany<BibleVerse>`. It bundles the `predicate` (where) and `sortBy` (orderBy).
+- `#Predicate { verse in ... }` — a *macro* (the `#` prefix) that compiles a closure into a real query the database can run. `verse in` names the row parameter; `&&` is AND, `==`/`>=`/`<=` are the comparisons. You can't run arbitrary Swift in here — only what the query engine understands.
+- `SortDescriptor(\.number)` — `\.number` is a *key-path* literal pointing at the `number` field; the descriptor sorts ascending by it.
+- `try? context.fetch(descriptor)` — `fetch` can `throw`; `try?` converts a thrown error into `nil` (rather than `try` which would propagate it). Then `?? []` supplies an empty fallback.
+
 Note the local `let low`/`let high` and `let book`/`let chapter` bindings: the `#Predicate` macro can only capture simple local values, so the fields are pulled out of `reference` first.
 
 Without a range (whole chapter), the predicate drops the `number` bounds and matches every verse in the chapter:
@@ -64,6 +91,17 @@ let descriptor = FetchDescriptor<BibleVerse>(
 return (try? context.fetch(descriptor)) ?? []
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: whole-chapter query — no number bounds.
+const rows = await prisma.bibleVerse.findMany({
+  where: { translation: translationKey, book, chapter },
+  orderBy: { number: "asc" },
+}).catch(() => null);
+return rows ?? [];
+```
+
 Both branches sort by `number` and use `(try? ...) ?? []`, so a query failure or a not-yet-seeded translation simply yields an empty array — the caller treats "empty" as "unknown reference."
 
 **The seeded check.** A count query capped at 1 — the cheapest possible "does any row exist for this translation?":
@@ -74,6 +112,22 @@ var descriptor = FetchDescriptor<BibleVerse>(
 descriptor.fetchLimit = 1
 return ((try? context.fetchCount(descriptor)) ?? 0) > 0
 ```
+
+**TypeScript equivalent**
+
+```ts
+// analogy: cheap existence check via count with a limit.
+const count = await prisma.bibleVerse.count({
+  where: { translation: translationKey },
+  take: 1,                       // fetchLimit = 1
+}).catch(() => 0);
+return (count ?? 0) > 0;
+```
+
+**Swift syntax:**
+- `#Predicate { $0.translation == translationKey }` — here the row parameter is implicit, so `$0` stands for the verse (no `verse in` needed). Same as `(v) => v.translation === translationKey`.
+- `var descriptor = ...` then `descriptor.fetchLimit = 1` — `var` (not `let`) because we mutate the descriptor after building it to add a `LIMIT 1`.
+- `context.fetchCount(...)` returns just the row count (a `SELECT COUNT(*)`), no objects materialized — cheaper than fetching and checking `.isEmpty`.
 
 `$0` is the implicit verse argument. `fetchLimit = 1` means it stops as soon as it finds one row.
 

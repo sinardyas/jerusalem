@@ -15,11 +15,11 @@ There are three checks: one for a single filename, one that walks an entire `Ren
 
 ## Swift you'll meet in this file
 
-- `enum MediaAudit { static func ... }` — a caseless enum used as a namespace of pure static functions (like `export const MediaAudit = { ... }`). No instances are ever made.
-- `FileManager.default.isReadableFile(atPath:)` — the OS file-existence/readability check.
+- `enum MediaAudit { static func ... }` — a caseless enum used as a namespace of pure static functions → `export const MediaAudit = { ... }`. No instances are ever made.
+- `FileManager.default.isReadableFile(atPath:)` — the OS file-existence/readability check → `fs.accessSync(path, R_OK)`-style probe.
 - `String?` optional + `guard let filename, !filename.isEmpty else { return false }` — early-return guard that unwraps and validates.
 - `[String]` — an array (`string[]`); built up and returned.
-- `for element in slide.elements where element.kind == .image` — a filtered loop (only image elements).
+- `for element in slide.elements where element.kind == .image` — a filtered loop (only image elements) → `for (const e of … ) if (e.kind === "image")`.
 - `url.lastPathComponent` / `url.path` — the filename and the full filesystem path.
 - `?.` optional chaining, `if let` binding.
 
@@ -34,6 +34,24 @@ static func isPresent(filename: String?) -> Bool {
     return FileManager.default.isReadableFile(atPath: url.path)
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// caseless enum ⇒ a namespace object of pure functions
+const MediaAudit = {
+  isPresent(filename: string | null): boolean {
+    // guard let filename, !isEmpty else { return false }
+    if (!filename) return false;        // covers null AND ""
+    const url = MediaStorage.url(filename);
+    return isReadableFile(url.path);
+  },
+};
+```
+
+**Swift syntax:**
+- `enum MediaAudit { static func … }` — a *caseless* enum: no cases, never instantiated, purely a namespace for static helpers. Idiomatic Swift for "a module of pure functions" → a plain object / `export const`.
+- `guard let filename, !filename.isEmpty else { return false }` — unwraps the optional (`let filename` is shorthand for `let filename = filename`) *and* checks it's non-empty; on failure returns `false`. After the guard, `filename` is a non-optional `String`.
 
 `missingFiles(in:)` is the main workhorse — it walks every file path a `RenderableSlide` can carry and collects the ones that don't resolve:
 
@@ -57,6 +75,43 @@ static func missingFiles(in slide: RenderableSlide) -> [String] {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+missingFiles(slide: RenderableSlide): string[] {
+  const missing: string[] = [];
+
+  // background image: present-but-unreadable ⇒ record its filename
+  const bgURL = slide.backgroundImageURL;
+  if (bgURL && !isReadableFile(bgURL.path)) {
+    missing.push(bgURL.lastPathComponent);
+  }
+
+  // background video
+  const cue = slide.backgroundVideo;
+  if (cue && !isReadableFile(cue.url.path)) {
+    missing.push(cue.url.lastPathComponent);
+  }
+
+  // every image ELEMENT on the slide (filtered loop)
+  for (const element of slide.elements) {
+    if (element.kind !== "image") continue;     // `where element.kind == .image`
+    const filename = element.imageFilename;
+    if (filename && !MediaAudit.isPresent(filename)) {
+      missing.push(filename);
+    }
+  }
+
+  return missing;   // empty ⇒ slide is fully self-contained
+}
+```
+
+**Swift syntax:**
+- `var missing: [String] = []` — a mutable array (`let` would be immutable). `var` for accumulation → `const missing: string[] = []` (TS `const` binds the reference but the array is still mutable).
+- `if let url = slide.backgroundImageURL, !isReadableFile(...) { … }` — combines an optional unwrap and a boolean test in one `if`: enters only when the URL exists *and* is unreadable → `if (url && !readable)`.
+- `for element in slide.elements where element.kind == .image` — a `for`-loop with a `where` filter; iterations not matching the predicate are skipped → `for (…) { if (e.kind !== "image") continue; … }`.
+- `url.lastPathComponent` — the final path segment (the filename) → `path.basename(url)`.
+
 It checks three sources: the slide's background image, the slide's background video, and every image *element* on the slide. An empty array means the slide is fully self-contained (nothing missing). Note that the background image/video are checked by their resolved URL directly, while image elements go back through `isPresent(filename:)`.
 
 `isPresent(_ cue:)` is the convenience for the live program's video items:
@@ -66,6 +121,19 @@ static func isPresent(_ cue: VideoCue) -> Bool {
     FileManager.default.isReadableFile(atPath: cue.url.path)
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// overload by argument type ⇒ a separately-named/dispatched function in TS
+isPresentCue(cue: VideoCue): boolean {
+  return isReadableFile(cue.url.path);
+}
+```
+
+**Swift syntax:**
+- `static func isPresent(_ cue: VideoCue)` — Swift allows *overloading*: two functions both named `isPresent` distinguished by parameter type/label (`filename:` vs unlabeled `VideoCue`). TS lacks ad-hoc overloading by runtime type, so you'd give them distinct names or use a union + type guard.
+- The body is a single expression with no `return` — single-expression functions implicitly return their one expression.
 
 ## How it connects
 

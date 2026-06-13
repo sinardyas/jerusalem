@@ -29,8 +29,10 @@ Being a caseless `enum` (a namespace, not a thing you instantiate), it has no mo
 | `.filter { !$0.isEmpty }` | `.filter(s => s.length > 0)`; `$0` is the implicit first arg, like an arrow param |
 | `.joined(separator: " ")` | `arr.join(" ")` |
 | `.replacingOccurrences(of: " ", with: "")` | `str.replaceAll(" ", "")` |
-| `inout map` | passing an object by reference so the function can mutate it |
+| `func add(...)` nested in `{ ... }()` | a helper defined *inside* an IIFE, closing over the local `map` |
+| `inout map` | passing an object by reference so the function can mutate it — JS objects/Maps already pass by reference |
 | `let aliases: [...] = { ... }()` | an IIFE: `const aliases = (() => { ... })()` |
+| `.hasSuffix(".")` / `.dropLast()` | `str.endsWith(".")` / `str.slice(0, -1)` |
 
 ## Code walkthrough
 
@@ -42,6 +44,23 @@ static let canonicalBooks: [String] = [
 ]
 ```
 
+**TypeScript equivalent**
+
+```ts
+export const BibleBookCatalog = {
+  // All 66 canonical books, in order. The string is also the display form.
+  canonicalBooks: [
+    "Genesis", "Exodus", /* ... */ "Jude", "Revelation",
+  ] as string[],
+  // ... methods below
+};
+```
+
+**Swift syntax:**
+- `enum BibleBookCatalog { static ... }` — a *caseless* `enum`: it has no cases, so you never make an instance. It's purely a namespace bag for `static` members, exactly like `export const BibleBookCatalog = { ... }` in TS.
+- `static let` — a type-level constant shared by everyone (no instances exist), like a `const` property on the module object. `let` = immutable (`const`); `var` = mutable (`let`).
+- `[String]` — array-of-String shorthand, i.e. `string[]`.
+
 **The public lookup.** Normalize the input, then index into the alias table:
 
 ```swift
@@ -50,6 +69,20 @@ static func canonical(for input: String) -> String? {
     return aliases[key]
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+canonical(input: string): string | null {
+  const key = this.normalize(input);
+  // Map/Record lookup returns undefined when absent; normalize to null.
+  return this.aliases[key] ?? null;
+},
+```
+
+**Swift syntax:**
+- `func canonical(for input: String) -> String?` — `for` is the *argument label* (used at the call site: `canonical(for: "1cor")`), while `input` is the internal name used in the body. TS has no separate label; the param name does both.
+- `-> String?` — the trailing `?` makes the return *optional*: `String | null`. Dictionary subscript `aliases[key]` already returns `String?` (nil if missing) — that nil is the "unknown book" signal.
 
 `aliases[key]` returns `nil` automatically if the key isn't present — exactly the "unknown book" signal callers want.
 
@@ -64,11 +97,49 @@ let collapsed = input
     .joined(separator: " ")
 ```
 
+**TypeScript equivalent**
+
+```ts
+const collapsed = input
+  .trim()
+  .toLowerCase()
+  .split(/\s+/)
+  .filter((s) => s.length > 0)
+  .join(" ");
+```
+
+**Swift syntax:**
+- `.filter { !$0.isEmpty }` — a *trailing closure*: when a closure is the last (here, only) argument you can drop the parens and write `{ ... }`. `$0` is the first implicit parameter, like `(s) =>` in an arrow. So this reads `.filter((s) => !s.isEmpty)`.
+
 **Building the alias table.** This is the clever part. The table is built once, lazily, via an IIFE-style closure assigned to a `static let`. A local helper `add(_:_:)` registers the canonical name plus its extra aliases:
 
 ```swift
 add("1 Corinthians", ["1 cor", "1cor", "1 co", "1co"])
 ```
+
+**TypeScript equivalent**
+
+```ts
+// Built once, eagerly, via an IIFE — analogous to Swift's `= { ... }()`.
+aliases: ((): Record<string, string> => {
+  const map: Record<string, string> = {};
+
+  // Always allow the canonical form itself plus lower/no-space variants.
+  const add = (canonical: string, extras: string[] = []) => {
+    register(canonical, canonical, map);
+    for (const alias of extras) register(alias, canonical, map);
+  };
+
+  add("1 Corinthians", ["1 cor", "1cor", "1 co", "1co"]);
+  // ... all 66 books ...
+
+  return map;
+})(),
+```
+
+**Swift syntax:**
+- `let aliases: [String: String] = { ... }()` — the trailing `()` *calls* the closure immediately, so `aliases` holds the returned dictionary, not the closure. This is exactly a TS IIFE `(() => { ... })()`. Useful when a constant needs several setup statements.
+- `func add(_ canonical: String, _ extras: [String] = [])` — the `_` means "no argument label" (call it positionally: `add("Genesis", ["gen"])`). `= []` is a default value, like `extras: string[] = []`.
 
 Each alias is fed to `register`, which inserts **three** forms into the map so they all resolve:
 
@@ -80,6 +151,26 @@ if collapsed.hasSuffix(".") {              // "gen." -> also "gen"
     map[String(collapsed.dropLast())] = canonical
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+function register(alias: string, canonical: string, map: Record<string, string>) {
+  const lowered = alias.toLowerCase();
+  const collapsed = lowered.split(/\s+/).filter((s) => s.length > 0).join(" ");
+  map[collapsed] = canonical;                         // "1 cor"
+  const noSpace = collapsed.replaceAll(" ", "");
+  if (noSpace !== collapsed) map[noSpace] = canonical; // "1cor"
+  // Strip a trailing period from dotted abbreviations: "gen." -> "gen".
+  if (collapsed.endsWith(".")) {
+    map[collapsed.slice(0, -1)] = canonical;
+  }
+}
+```
+
+**Swift syntax:**
+- `in map: inout [String: String]` — `inout` passes the dictionary *by reference* so `register` mutates the caller's `map`. In JS, objects/Maps are already reference types, so you just pass `map` and mutate it.
+- `String(collapsed.dropLast())` — `dropLast()` yields a `Substring` (a view into the original string); wrapping in `String(...)` makes a standalone copy. JS strings are already standalone, so `collapsed.slice(0, -1)` suffices.
 
 **Worked example: `canonical(for: "1cor")`**
 1. `normalize("1cor")` → `"1cor"` (already trimmed/lowercased, no spaces to collapse).

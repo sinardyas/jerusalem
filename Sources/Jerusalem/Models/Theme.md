@@ -11,12 +11,12 @@ A `Theme` is a saved "look" — a default background color, font, size, text col
 Practically, a theme is the *seed* of styling for new slides. When a slide/element is created, the theme's values become its starting style. The styling fields here deliberately mirror the fields on `SlideElement`, and their defaults are chosen to match what the existing `Theme.apply(to:)` logic already produces — so existing themes stay visually identical until the user changes them. An `Item` can optionally point at one `Theme` (see `Item.theme`).
 
 ## Swift you'll meet in this file
-- `@Model final class` — SwiftData entity (like a Prisma model); `final` = not subclassable.
-- `UUID` / `UUID()` — unique-id type and generator.
-- `String` / `Double` / `Bool` — string, float, boolean.
-- `private`-free stored properties with defaults — plain columns.
-- `private var alignmentRaw` paired with a computed `alignment` — the enum-storage convention (here the raw field happens to be declared without `private`, but it's the same pattern).
-- Computed property `var alignment: TextAlignmentOption { get/set }` — a getter+setter that maps a string column to a typed enum.
+- `@Model final class` — SwiftData entity (like a Prisma model); `final` = no `extends`.
+- `UUID` / `UUID()` — unique-id type + generator. TS: `string` + `crypto.randomUUID()`.
+- `String` / `Double` / `Bool` — `string` / `number` / `boolean`.
+- Plain stored properties with defaults — columns; TS class fields with initializers.
+- `var alignmentRaw` paired with a computed `alignment` — the enum-storage convention (here the raw field happens to be declared without `private`, but it's the same pattern).
+- Computed property `var alignment: TextAlignmentOption { get/set }` — a getter+setter mapping a string column to a typed enum. TS: `get/set alignment()`.
 - `init(... = "...")` — default parameter.
 
 ## Code walkthrough
@@ -32,6 +32,24 @@ final class Theme {
     var fontSize: Double = 48
     var textColorHex: String = "#FFFFFF"
 ```
+
+**TypeScript equivalent**
+
+```ts
+// @Entity
+class Theme {
+  uuid: string = crypto.randomUUID();
+  name: string = "Default Dark";
+  backgroundColorHex: string = "#0F172A";
+  fontName: string = "Avenir Next";
+  fontSize: number = 48;             // points at the 1920×1080 reference
+  textColorHex: string = "#FFFFFF";
+}
+```
+
+**Swift syntax:**
+- `@Model final class` — persisted SwiftData entity (rows), not subclassable. TS: `// @Entity class`.
+- `var x: T = v` — mutable stored property with a default. `Double` is a floating-point `number`.
 
 `uuid` is a stable external id. `name` is the display name. The rest are the core look: a dark navy background (`#0F172A`), Avenir Next at 48 points (the same 1920×1080-reference scale used elsewhere), white text. Colors are hex strings, parsed into real colors elsewhere.
 
@@ -53,6 +71,25 @@ final class Theme {
     var shadowColorHex: String = "#000000B3"
 ```
 
+**TypeScript equivalent**
+
+```ts
+  alignmentRaw: string = "center";   // backing string for the alignment enum
+  isBold: boolean = true;
+  isItalic: boolean = false;
+  isUnderlined: boolean = false;
+  hasShadow: boolean = true;
+  hasStroke: boolean = false;
+  autoFit: boolean = true;
+  lineSpacingMultiplier: number = 1.35;
+  letterSpacing: number = 0;
+  strokeWidth: number = 3.0;
+  strokeColorHex: string = "#000000";
+  shadowBlur: number = 12;
+  shadowOffsetY: number = -4;
+  shadowColorHex: string = "#000000B3"; // #RRGGBBAA — black at ~70% opacity
+```
+
 This block is a near-exact copy of the styling fields on `SlideElement`. The comment explains they're captured from a "Set as default style for new slides" action, and the defaults match what `Theme.apply(to:)` already does — so adding these columns doesn't change how existing themes render. (`#000000B3` is black with an alpha byte ≈ 70% opacity.) `alignmentRaw` is the stored string behind the `alignment` enum.
 
 ### Constructor
@@ -61,6 +98,17 @@ init(name: String = "Default Dark") {
     self.name = name
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+constructor(name: string = "Default Dark") {
+  this.name = name;
+}
+```
+
+**Swift syntax:**
+- `name: String = "Default Dark"` — a **default parameter**; `Theme()` works, every other field falling back to its property default.
 
 Just takes an optional `name` (defaulting to `"Default Dark"`); every other field uses its property default.
 
@@ -71,6 +119,25 @@ var alignment: TextAlignmentOption {
     set { alignmentRaw = newValue.rawValue }
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+get alignment(): TextAlignmentOption {
+  const cases: TextAlignmentOption[] = ["leading", "center", "trailing", "justified"];
+  return cases.includes(this.alignmentRaw as TextAlignmentOption)
+    ? (this.alignmentRaw as TextAlignmentOption) : "center"; // ?? .center
+}
+set alignment(newValue: TextAlignmentOption) {
+  this.alignmentRaw = newValue; // newValue.rawValue
+}
+```
+
+**Swift syntax:**
+- `var alignment: TextAlignmentOption { get { … } set { … } }` — computed property with both accessors.
+- `TextAlignmentOption(rawValue: alignmentRaw)` — failable init from a string → optional; `?? .center` falls back if unrecognized.
+- `newValue` — the implicit setter argument.
+- `TextAlignmentOption` itself is defined in `SlideElement.swift` and shared here.
 
 Same pattern seen across the models: a `String` column (`alignmentRaw`) is the real storage, and a computed `alignment` property exposes it as the typed `TextAlignmentOption` enum (defined in `SlideElement.swift`). The getter rebuilds the enum from the string, falling back to `.center` if it's unrecognized (`?? .center`); the setter writes `newValue.rawValue` back. `newValue` is the implicit setter argument, like the value passed to a JS setter.
 

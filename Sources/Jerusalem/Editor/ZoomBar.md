@@ -16,10 +16,10 @@ Two small things in one file.
 ## Swift you'll meet in this file
 
 - `enum CanvasZoomMath { static let range … }` — caseless enum = pure-function namespace, like `export const CanvasZoomMath = { … }`.
-- `ClosedRange<CGFloat> = 0.5...2.0` — an inclusive range value (`0.5...2.0`), with `.lowerBound`/`.upperBound`.
-- `static func clamp(_ value: CGFloat) -> CGFloat` — `_` = unlabeled first arg; `CGFloat` = a `number`.
-- `struct ZoomBar: View { @Binding var zoom: CGFloat }` — SwiftUI view; `@Binding` = a two-way prop ([value, setValue] from the parent).
-- `HStack(spacing: 8) { … }` = a row; `Button { … } label: { … }` = a button (action closure + label); `Image(systemName: "minus")` = SF Symbol.
+- `ClosedRange<CGFloat> = 0.5...2.0` — an inclusive range value (`0.5...2.0` ≈ a `{lower, upper}` pair), with `.lowerBound`/`.upperBound`.
+- `static func clamp(_ value: CGFloat) -> CGFloat` — `static` = a namespace-level function (no instance); `_` = unlabeled first arg; `CGFloat` = a `number`.
+- `struct ZoomBar: View { @Binding var zoom: CGFloat }` — SwiftUI view (≈ React component); `@Binding` = a two-way prop (`[value, setValue]` from the parent).
+- `HStack(spacing: 8) { … }` = a row (`<Row>`); `Button { … } label: { … }` = a button (action closure + label children); `Image(systemName: "minus")` = SF Symbol.
 - `.disabled(zoom <= range.lowerBound + 0.001)` = conditionally disable; `Int((zoom * 100).rounded())` = round to a whole percent.
 - `.background(.regularMaterial, in: Capsule())` = a translucent blurred pill background; `.overlay(Capsule().strokeBorder(…))` / `.shadow(…)` = styling wrappers.
 
@@ -44,6 +44,34 @@ enum CanvasZoomMath {
     }
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// analogy: a caseless Swift enum → a plain object of pure functions
+export const CanvasZoomMath = {
+  // ClosedRange<CGFloat> 0.5...2.0 → an inclusive {lower, upper} pair
+  range: { lower: 0.5, upper: 2.0 },
+
+  clamp(value: number): number {
+    return Math.min(this.range.upper, Math.max(this.range.lower, value));
+  },
+  // Pinch: `magnification` is the incremental factor of one magnify event.
+  applyingMagnify(magnification: number, zoom: number): number {
+    return this.clamp(zoom * (1 + magnification));
+  },
+  // ⌘-scroll: `delta` is the already-scaled additive zoom change.
+  applyingScroll(delta: number, zoom: number): number {
+    return this.clamp(zoom + delta);
+  },
+};
+```
+
+**Swift syntax:**
+- `enum CanvasZoomMath { static … }` — a **caseless enum**: an enum with no `case`s, used purely as a namespace of `static` members. You never instantiate it; you call `CanvasZoomMath.clamp(...)`. TS analog: `export const CanvasZoomMath = { ... }`.
+- `static let` / `static func` — type-level (not per-instance) members. TS analog: object properties / methods (or `static` on a class).
+- `applying(magnify magnification:)` — the two names are an **external label** (`magnify`, what the caller writes) and an **internal name** (`magnification`, used in the body). Swift overloads on labels, so `applying(magnify:)` and `applying(scroll:)` are distinct functions; in TS they become two differently-named methods.
+- `ClosedRange<CGFloat>` with `.lowerBound`/`.upperBound` — an inclusive range value. TS analog: a `{lower, upper}` object.
 
 - `clamp` pins any value into 0.5…2.0.
 - `applying(magnify:)` treats pinch as **multiplicative** — `magnification` is a small incremental factor (e.g. `0.1`), so `zoom * (1 + 0.1)` scales up 10% — then clamps. This is the natural feel for a pinch.
@@ -78,6 +106,42 @@ struct ZoomBar: View {
     private func set(_ value: CGFloat) { zoom = CanvasZoomMath.clamp(value) }
 }
 ```
+
+**TypeScript equivalent**
+
+```tsx
+// @Binding zoom → a [value, setValue] prop pair from the parent
+function ZoomBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
+  const range = CanvasZoomMath.range;
+  const step = 0.1;
+  const set = (value: number) => setZoom(CanvasZoomMath.clamp(value)); // every change clamps
+
+  return (
+    <Row
+      spacing={8}
+      style={{ /* analogy: .regularMaterial capsule + border + shadow */ }}
+    >
+      <button onClick={() => set(zoom - step)} disabled={zoom <= range.lower + 0.001}>
+        {/* analogy: Image(systemName: "minus") */}
+        <Icon name="minus" />
+      </button>
+      <span style={{ fontVariantNumeric: "tabular-nums", width: 42 }}>
+        {Math.round(zoom * 100)}%
+      </span>
+      <button onClick={() => set(zoom + step)} disabled={zoom >= range.upper - 0.001}>
+        <Icon name="plus" />
+      </button>
+    </Row>
+  );
+}
+```
+
+**Swift syntax:**
+- `@Binding var zoom: CGFloat` — a two-way binding passed in by the parent; writing `zoom = …` updates the parent's state. TS analog: a `{ value, setValue }` prop pair (here `zoom` + `setZoom`).
+- `var body: some View` — the view's content; `some View` is an **opaque return type** ("some concrete View, type hidden"). TS analog: a component's returned JSX.
+- `Button { action } label: { … }` — a **trailing closure** for the action plus a labeled `label:` closure for the children. TS analog: `<button onClick={…}>{children}</button>`.
+- `Text("\(Int((zoom * 100).rounded()))%")` — `\( … )` is **string interpolation** (TS template literal `` `${…}%` ``); `.rounded()` rounds a `Double`.
+- `private let step: CGFloat = 0.1` — an immutable instance constant. TS analog: a `const` inside the component.
 
 A minus button (steps `zoom` down by `0.1`), a monospaced percentage readout (so it doesn't jitter as digits change), and a plus button. Each button is disabled at its end of the range (`+ 0.001` / `- 0.001` guards floating-point fuzz). Every change goes through `set`, which clamps via `CanvasZoomMath`. The styling wraps it all in a translucent `.regularMaterial` capsule with a hairline border and a soft shadow so it floats over the stage.
 

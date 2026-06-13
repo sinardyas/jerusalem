@@ -15,17 +15,18 @@ Per project memory (Phase 8.5), operator-side editing was removed; this view now
 
 ## Swift you'll meet in this file
 
-- **`@Bindable var item: Item`** — bindable SwiftData model so `$item.title` / `$item.linesPerSlide` are two-way bindings.
-- **`@Environment(LiveState.self) private var live`** — injected shared live engine.
-- **`@State private var bodyDraft: String = ""`** — `useState`; a local draft buffer for the body text, flushed on debounce / disappear.
-- **`@State private var rebuildTask: Task<Void, Never>?`** — cancellable async handle for the debounce.
-- **`Form { Section { ... } }` / `.formStyle(.grouped)`** — grouped settings-style form.
-- **`TextField(..., text: Binding(get:set:))`** — a custom binding mapping `nil ⇄ ""` for the optional subtitle.
-- **`Stepper(value: $item.linesPerSlide, in: 1...8)`** — clamped +/- numeric control.
-- **`TextEditor(text: $bodyDraft)`** — multi-line text area; `.scrollContentBackground(.hidden)` + `.background(...)` give it a custom rounded backdrop.
-- **`.onChange(of:) { _, newValue in ... }`** — side-effect on value change.
-- **`.onAppear` / `.onChange(of: item.persistentModelID)` / `.onDisappear`** — lifecycle hooks.
-- **`Task { @MainActor in try? await Task.sleep(...) }`** — debounce on the main actor.
+- **`struct SermonEditorView: View { var body: some View }`** — SHAPE: value-type `struct` conforming to `View`, with a `body`. TS analog: `function SermonEditorView(): JSX.Element { return (...) }`; `some View` ≈ `: JSX.Element`.
+- **`@Bindable var item: Item`** — bindable SwiftData model so `$item.title` / `$item.linesPerSlide` are two-way bindings. TS analog: a model object plus setters.
+- **`@Environment(LiveState.self) private var live`** — injected shared live engine. TS analog: `useContext(LiveStateContext)`.
+- **`@State private var bodyDraft: String = ""`** — `useState`; a local draft buffer for the body text, flushed on debounce / disappear. TS analog: `const [bodyDraft, setBodyDraft] = useState("")`.
+- **`@State private var rebuildTask: Task<Void, Never>?`** — cancellable async handle for the debounce. SHAPE: `T?` = "T or null". TS analog: a cancellable `Promise | null`.
+- **`Form { Section { ... } }` / `.formStyle(.grouped)`** — grouped settings-style form. TS analog: `<Form className="grouped">`.
+- **`TextField(..., text: Binding(get:set:))`** — a custom binding mapping `nil ⇄ ""` for the optional subtitle. TS analog: an `<input>` whose value/onChange convert empty string ↔ null.
+- **`Stepper(value: $item.linesPerSlide, in: 1...8)`** — clamped +/- numeric control. TS analog: `<input type="number" min={1} max={8} />`.
+- **`TextEditor(text: $bodyDraft)`** — multi-line text area; `.scrollContentBackground(.hidden)` + `.background(...)` give it a custom rounded backdrop. TS analog: `<textarea>`.
+- **`.onChange(of:) { _, newValue in ... }`** — side-effect on value change; `_` drops the old value. TS analog: `useEffect(..., [value])` or an inline handler.
+- **`.onAppear` / `.onChange(of: item.persistentModelID)` / `.onDisappear`** — lifecycle hooks. TS analog: `useEffect` (mount / dep-change / cleanup).
+- **`Task { @MainActor in try? await Task.sleep(...) }`** — debounce on the main actor. TS analog: `(async () => { await sleep(...) })()`.
 
 ## Code walkthrough
 
@@ -51,6 +52,45 @@ Section("Item") {
 }
 ```
 
+**TypeScript equivalent**
+
+```tsx
+<Section title="Item">
+  <input
+    placeholder="Title"
+    value={item.title}
+    onChange={e => {
+      item.title = e.target.value;
+      ContentRebuilder.rebuild(item);
+      rearm();
+    }}
+  />
+  {/* analogy: Binding(get:set:) -> a controlled input mapping "" <-> null */}
+  <input
+    placeholder="Subtitle"
+    value={item.subtitle ?? ""}
+    onChange={e => (item.subtitle = e.target.value === "" ? null : e.target.value)}
+  />
+  {/* analogy: Stepper -> clamped number input */}
+  <NumberStepper
+    min={1}
+    max={8}
+    value={item.linesPerSlide}
+    onChange={v => {
+      item.linesPerSlide = v;
+      ContentRebuilder.rebuild(item);
+      rearm();
+    }}
+    label={<LabeledRow label="Lines per slide" value={`${item.linesPerSlide}`} />}
+  />
+</Section>
+```
+
+**Swift syntax:**
+- `TextField("Subtitle", text: Binding(get: { ... }, set: { ... }))` — a hand-built two-way binding: `get` returns the displayed value, `set` writes it back; `$0` in `set` is the new string. Here it maps `nil ⇄ ""`. TS analog: a controlled input with custom value/onChange conversions.
+- `item.subtitle = $0.isEmpty ? nil : $0` — assign `nil` (null) when empty, else the string. TS analog: `e.target.value === "" ? null : e.target.value`.
+- `Stepper(value: $item.linesPerSlide, in: 1...8) { label }` — a stepper bound two-way and clamped to the `1...8` closed range; the trailing closure is its label. TS analog: a number input with `min`/`max`.
+
 Title and lines-per-slide each trigger an immediate `ContentRebuilder.rebuild(item)` + `rearm()` on change (the title can affect the title slide). The subtitle uses the empty-string-to-`nil` binding so a cleared field doesn't store `""`.
 
 ### The body editor
@@ -74,6 +114,22 @@ Section {
 }
 ```
 
+**TypeScript equivalent**
+
+```tsx
+<Section
+  header={<Text>Body</Text>}
+  footer={<Text className="caption secondary">Separate points with a blank line. Each point becomes its own slide.</Text>}
+>
+  {/* analogy: TextEditor -> <textarea> */}
+  <textarea
+    style={{ minHeight: 140, padding: 8, borderRadius: 6, background: "var(--secondary-bg)" }}
+    value={bodyDraft}
+    onChange={e => { setBodyDraft(e.target.value); scheduleRebuild(e.target.value); }}
+  />
+</Section>
+```
+
 A multi-line area bound to the `bodyDraft` local. Each edit calls `scheduleRebuild` (debounced). The footer documents the blank-line-separates-points rule.
 
 ### Derived-slides readout + reset
@@ -92,6 +148,25 @@ Section("Derived slides") {
 }
 ```
 
+**TypeScript equivalent**
+
+```tsx
+<Section title="Derived slides">
+  <LabeledRow label="Slides" value={`${item.orderedSlides.length}`} />
+  {ContentRebuilder.hasManualEdits(item) && (
+    <button
+      className="destructive"
+      onClick={() => { ContentRebuilder.resetToAutoDerived(item); rearm(); }}
+    >
+      <Icon name="arrow.uturn.backward" /> Restore auto-generated slides
+    </button>
+  )}
+</Section>
+```
+
+**Swift syntax:**
+- `if ContentRebuilder.hasManualEdits(item) { ... }` — a plain `if` inside a view builder conditionally includes the button. TS analog: `cond && <button .../>`.
+
 Shows the current slide count; the reset button appears only when manual slide edits exist, and discards them to re-derive from the body, then re-arms.
 
 ### Lifecycle and draft sync
@@ -103,6 +178,19 @@ Shows the current slide count; the reset button appears only when manual slide e
     rebuildTask?.cancel()
     ContentRebuilder.setBody(bodyDraft, on: item)
 }
+```
+
+**TypeScript equivalent**
+
+```tsx
+// analogy: .onAppear + .onChange(of: item.id) + .onDisappear -> one useEffect
+useEffect(() => {
+  setBodyDraft(item.bodyText ?? "");          // load on mount AND item-swap
+  return () => {                              // .onDisappear cleanup
+    rebuildTask?.cancel();
+    ContentRebuilder.setBody(bodyDraft, item); // flush the last keystrokes
+  };
+}, [item.persistentModelID]);
 ```
 
 The draft loads from `item.bodyText` on appear (and on item-swap). On disappear it cancels the pending debounce and **flushes** the current body via `ContentRebuilder.setBody`, so the last keystrokes survive a window close.
@@ -124,6 +212,30 @@ private func rearm() {
     live.arm(LiveState.programSlides(for: item))
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+function scheduleRebuild(text: string): void {
+  rebuildTask?.cancel();
+  // analogy: Task { @MainActor in ... } -> async run on the main thread
+  rebuildTask = runCancellable(async () => {
+    await sleep(350);
+    if (rebuildTask?.isCancelled) return;   // guard !Task.isCancelled else { return }
+    ContentRebuilder.setBody(text, item);
+    rearm();
+  });
+}
+
+function rearm(): void {
+  live.arm(LiveState.programSlides(item));
+}
+```
+
+**Swift syntax:**
+- `func scheduleRebuild(_ text: String)` — `_` means no external argument label (call it positionally: `scheduleRebuild(newValue)`). TS analog: a plain positional param.
+- `rebuildTask?.cancel()` — optional-chained call: only cancels if a task exists. TS analog: `rebuildTask?.cancel()`.
+- `Task { @MainActor in ... }` — async work pinned to the main actor; `try? await Task.sleep` awaits and swallows errors. TS analog: `(async () => { await sleep(...) })()`.
 
 The familiar pattern: cancel-and-replace a 350 ms task; if it survives, write the body through `ContentRebuilder.setBody` and re-arm the program so the grid and the inspector's "Next" preview update.
 

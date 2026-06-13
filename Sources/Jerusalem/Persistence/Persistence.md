@@ -21,13 +21,13 @@ The container's main context **autosaves by default**, meaning edits are flushed
 
 | Swift | JS/TS analogy |
 |---|---|
-| `enum Persistence { static let ...; static func ... }` | Caseless enum as a **namespace** of stateless helpers — `export const Persistence = { ... }`. |
-| `static let schema = Schema([...])` | A constant (`const`) holding the model registry. |
+| `enum Persistence { static let ...; static func ... }` | Caseless `enum` as a **namespace** of stateless helpers (shape: `enum Foo { static let/func }`) — `export const Persistence = { ... }`. |
+| `static let schema = Schema([...])` | A constant holding the model registry. Shape: `static let name = value`. |
 | `Item.self` | A reference to the *type itself* (not an instance) — like passing the class `Item` rather than `new Item()`. |
 | `ModelContainer` / `ModelContext` (SwiftData) | The DB connection + a unit-of-work session — like a Prisma client + a transaction. |
 | `ModelConfiguration(... isStoredInMemoryOnly:)` | Config object; the flag chooses in-memory vs on-disk storage (in-memory is great for tests). |
-| `@MainActor` | This function must run on the main (UI) thread. |
-| `inMemory: Bool = false` | A parameter with a **default value** — like `inMemory = false` in JS. |
+| `@MainActor` | This function must run on the main (UI) thread. Shape: `@MainActor func`. |
+| `inMemory: Bool = false` | A parameter with a **default value** (shape: `name: Type = default`) — like `inMemory = false` in JS. |
 | `do { ... try ... } catch { ... }` | `try/catch`. `try` marks a call that can throw. |
 | `fatalError(...)` | Deliberately crash with a message — like `throw` you never intend to recover from. |
 | `\(error)` | String interpolation — like `` `${error}` ``. |
@@ -49,7 +49,21 @@ static let schema = Schema([
 ])
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: the list of entities registered with a Prisma-like client.
+const schema = new Schema([
+  Item, Slide, SlideElement, SongSection,
+  BibleVerse, Theme, Playlist, PlaylistEntry,
+]);
+```
+
 A `Schema` is the registry of `@Model` entity types. Each `X.self` passes the *type* (not an instance). The comment notes you only need the roots — SwiftData finds related models through relationships — but here they're listed explicitly for clarity.
+
+**Swift syntax:**
+- `static let schema = Schema([...])` — a type-level constant (`static let` = a `const` on the namespace, computed once).
+- `Item.self` — the **metatype**: a value standing for the type `Item` itself, not an instance. Like passing the class `Item` (not `new Item()`) so the framework can register it. The array `[Item.self, ...]` is just `[Item, ...]` in the TS mental model.
 
 ### Building the container
 
@@ -69,6 +83,26 @@ static func makeContainer(inMemory: Bool = false) -> ModelContainer {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: build a Prisma-like client; on failure there's no app, so crash hard.
+function makeContainer(inMemory = false): ModelContainer {
+  const configuration = new ModelConfiguration({ schema, isStoredInMemoryOnly: inMemory });
+  try {
+    const container = new ModelContainer({ for: schema, configurations: configuration });
+    const context = new ModelContext(container);   // a session/transaction
+    BibleSeeder.seedIfNeeded(context);   // Phase 7: bundled scripture
+    SampleData.seedIfNeeded(context);
+    return container;
+  } catch (error) {
+    // fatalError ≈ unrecoverable crash
+    console.error(`Could not create the Jerusalem model container: ${error}`);
+    process.exit(1);
+  }
+}
+```
+
 Step by step, in JS terms:
 
 - Build a config; `inMemory` defaults to `false` (real on-disk DB), but tests pass `true` for an ephemeral store.
@@ -78,6 +112,15 @@ Step by step, in JS terms:
 - If construction fails, `fatalError` crashes immediately with a descriptive message. The reasoning: an app with no database is unusable, so there's nothing graceful to do — fail loud, fail early.
 
 `@MainActor` is required because seeding flows through `ContentRebuilder`, which mutates SwiftData models that the renderer reads on the main thread.
+
+**Swift syntax:**
+- `@MainActor` — pins the function to the main/UI thread (the compiler enforces it). No TS analog.
+- `inMemory: Bool = false` — a **default parameter value**; callers can omit it (`makeContainer()`) or pass `makeContainer(inMemory: true)`. Same idea as `function makeContainer(inMemory = false)`.
+- `-> ModelContainer` — return type.
+- `do { ... } catch { ... }` — Swift's `try/catch`. Inside, `try` marks each call that can throw; an error jumps to `catch`, where `error` is implicitly bound (no parameter declared). TS: `try { } catch (error) { }`.
+- `try ModelContainer(...)` — call a throwing initializer; without the surrounding `do/catch` (or a `throws` function) it wouldn't compile.
+- `ModelContext(container)` — opens a working session on the container; like beginning a unit-of-work / transaction.
+- `fatalError("... \(error)")` — unconditionally terminates the process with the message. `\(error)` is **string interpolation** (`${error}`). Use it when continuing is pointless; closest to `throw new Error(...)` that's never caught, or `process.exit(1)`.
 
 ## How it connects
 

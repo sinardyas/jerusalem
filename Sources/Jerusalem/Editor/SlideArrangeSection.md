@@ -13,14 +13,14 @@ Every numeric edit is clamped through `SlideGeometry.clamped` (so the element ca
 
 ## Swift you'll meet in this file
 
-- `@Bindable var slide: Slide` / `@Bindable var element: SlideElement` — `@Bindable` wraps SwiftData `@Model` objects so you can both read their fields and make `$`-Bindings from them; the section edits the `element` and reorders within the `slide`.
+- `@Bindable var slide: Slide` / `@Bindable var element: SlideElement` — `@Bindable` wraps SwiftData `@Model` objects so you can both read their fields and make `$`-Bindings from them; the section edits the `element` and reorders within the `slide`. TS analog: a mutable model object you can read and write, with `{ value, onChange }` derivable per field.
 - `var onChange: () -> Void` — a callback prop the parent supplies (`() => void`), fired after any edit.
-- `Binding<Double>` / `Binding<String>` — two-way value handles. This file builds **custom** bindings with `Binding(get:set:)` — an object with a getter and a setter, so reads and writes can transform the value (percent ↔ fraction, clamp on write).
-- `WritableKeyPath<SlideGeometry.Frame, Double>` — a key path, like a typed pointer to a field (e.g. "the `.x` field"); `frame[keyPath: kp]` reads/writes it. Comparable to a typed property accessor.
-- `private func percentField(_ label:value:) -> some View` — a helper that returns a view (a sub-component factory).
-- `private enum Movement { case front, forward, backward, back }` — a local enum for the four reorder directions.
-- `element.persistentModelID` — SwiftData's stable identity for a model row (used to find the element in the ordered list).
-- Controls: `TextField("", text:)` = a text `<input>`; `Button { action } label: { ... }` = a button with custom content; `.help("...")` = a tooltip.
+- `Binding<Double>` / `Binding<String>` — two-way value handles (`{ value: number, onChange }`). This file builds **custom** bindings with `Binding(get:set:)` — an object with a getter and a setter, so reads and writes can transform the value (percent ↔ fraction, clamp on write).
+- `WritableKeyPath<SlideGeometry.Frame, Double>` — a key path, like a typed pointer to a field (e.g. "the `.x` field"); `frame[keyPath: kp]` reads/writes it. TS analog: a typed field key plus get/set helpers, e.g. `(f) => f.x` / `(f, v) => f.x = v`.
+- `private func percentField(_ label:value:) -> some View` — a helper that returns a view (a sub-component factory). TS analog: a function component.
+- `private enum Movement { case front, forward, backward, back }` — a local enum for the four reorder directions; TS analog: `type Movement = "front" | "forward" | "backward" | "back"`.
+- `element.persistentModelID` — SwiftData's stable identity for a model row (used to find the element in the ordered list). TS analog: a row's `id`.
+- Controls: `TextField("", text:)` = a text `<input>`; `Button { action } label: { ... }` = a button with custom content; `.help("...")` = a tooltip (`title=`).
 
 ## Code walkthrough
 
@@ -40,6 +40,27 @@ InspectorSection(title: "Arrange") {
 }
 ```
 
+**TypeScript equivalent**
+
+```tsx
+<InspectorSection title="Arrange">
+  <Row style={{ gap: 8 }}>
+    {percentField("X", bindingFor("x", 0))}
+    {percentField("Y", bindingFor("y", 0))}
+  </Row>
+  <Row style={{ gap: 8 }}>
+    {percentField("W", bindingFor("width", SlideGeometry.defaultGridStep))}
+    {percentField("H", bindingFor("height", SlideGeometry.defaultGridStep))}
+  </Row>
+  {/* ... */}
+</InspectorSection>
+```
+
+**Swift syntax:**
+- `struct SlideArrangeSection: View { var body: some View }` — view declaration; `function SlideArrangeSection(props): JSX.Element`.
+- `InspectorSection(title: "Arrange") { ... }` — calls the generic section with a trailing closure as its `content` children.
+- `\.x`, `\.width` — key-path literals; `\` introduces a key path into `SlideGeometry.Frame`. TS analog: the string field key `"x"` / `"width"` (or a `(f) => f.x` getter).
+
 `\.x`, `\.width`, etc. are key paths into a `SlideGeometry.Frame`. Width/Height get a non-zero minimum (`defaultGridStep`) so an element can't collapse to nothing.
 
 ### Percent display ↔ stored fraction
@@ -50,6 +71,13 @@ InspectorSection(title: "Arrange") {
 TextField("", text: percentText(value))
     .textFieldStyle(.roundedBorder)
     .frame(maxWidth: 80)
+```
+
+**TypeScript equivalent**
+
+```tsx
+const { value: text, onChange } = percentText(value); // analogy: a derived string binding
+<input value={text} onChange={e => onChange(e.target.value)} style={{ maxWidth: 80 }} />
 ```
 
 `percentText` converts between the stored `Double` and the on-screen `"%"` string:
@@ -63,6 +91,28 @@ Binding(
         binding.wrappedValue = parsed / 100.0
     })
 ```
+
+**TypeScript equivalent**
+
+```ts
+function percentText(binding: Binding<number>): Binding<string> {
+  return {
+    get value() { return (binding.value * 100).toFixed(1) + "%"; }, // analogy: get
+    set value(newValue: string) {                                    // analogy: set
+      const stripped = newValue.replace(/[%,\s]/g, "");
+      const parsed = Number(stripped);
+      if (Number.isNaN(parsed)) return;                              // analogy: guard let ... else { return }
+      binding.value = parsed / 100;
+    },
+  };
+}
+```
+
+**Swift syntax:**
+- `Binding(get:set:)` — constructs a custom two-way binding from a getter closure and a setter closure. TS analog: an object with `get value()` / `set value()`.
+- `binding.wrappedValue` — the underlying value a `Binding` wraps; reading/writing it flows through to the source.
+- `String(format: "%.1f%%", ...)` — printf-style formatting; `%%` is a literal `%`. TS `.toFixed(1) + "%"`.
+- `guard let parsed = Double(stripped) else { return }` — try-parse-or-bail: if `Double(...)` returns nil (unparseable), exit early. TS: `if (Number.isNaN(parsed)) return;`.
 
 Read multiplies by 100 and appends `%`; write strips `%`/spaces, and if it parses, divides by 100 back into the underlying `Double` binding. A bad input (`guard let ... else { return }`) is silently ignored.
 
@@ -85,6 +135,30 @@ Binding(
     })
 ```
 
+**TypeScript equivalent**
+
+```ts
+function bindingFor(keyPath: keyof SlideGeometry.Frame, min: number): Binding<number> {
+  return {
+    get value() { return currentFrame()[keyPath]; },        // analogy: currentFrame[keyPath: keyPath]
+    set value(newValue: number) {
+      const f = { ...currentFrame() };
+      f[keyPath] = newValue;
+      const clamped = SlideGeometry.clamped(f, min);         // clamp on every write
+      element.x = clamped.x;
+      element.y = clamped.y;
+      element.width = clamped.width;
+      element.height = clamped.height;
+      onChange();
+    },
+  };
+}
+```
+
+**Swift syntax:**
+- `currentFrame[keyPath: keyPath]` — reads the field the key path points at; `f[keyPath: keyPath] = newValue` writes it. TS analog: `f[keyPath]` with `keyPath: keyof Frame`.
+- `var f = currentFrame` — copies the struct (value type); mutating `f` does **not** touch `element` until you explicitly assign back. TS structs need a manual `{ ...spread }` to copy.
+
 It reads the current frame, sets just the edited field, runs the whole frame through `SlideGeometry.clamped`, then writes all four fields back onto the `element` and calls `onChange()`. `currentFrame` simply snapshots the element's four numbers into a `SlideGeometry.Frame` value.
 
 ### Reorder buttons
@@ -97,6 +171,18 @@ Button { reorder(.front) } label: {
 }.help("Bring to Front")
 ```
 
+**TypeScript equivalent**
+
+```tsx
+<button onClick={() => reorder("front")} title="Bring to Front">
+  <Icon name="square.3.layers.3d.top.filled" />
+</button>
+```
+
+**Swift syntax:**
+- `Button { reorder(.front) } label: { ... }` — the two-trailing-closure form: the first `{ }` is the action, `label:` is the visible content. TS: `onClick` + children.
+- `.help("...")` — a tooltip; TS `title="..."`.
+
 `reorder` finds the element's current index in `slide.orderedElements`, asks `SlideGeometry` for the new index arrangement, then rewrites each element's `order` from its resulting position:
 
 ```swift
@@ -107,6 +193,23 @@ for (position, oldIndex) in newIndices.enumerated() {
 }
 onChange()
 ```
+
+**TypeScript equivalent**
+
+```ts
+switch (movement) {
+  case "front": newIndices = SlideGeometry.movedToFront(currentIndex, indices); break;
+  // ...
+}
+newIndices.forEach((oldIndex, position) => {     // analogy: .enumerated() → (element, index)
+  ordered[oldIndex].order = position;
+});
+onChange();
+```
+
+**Swift syntax:**
+- `for (position, oldIndex) in newIndices.enumerated()` — iterate with index; `.enumerated()` yields `(offset, element)` tuples destructured here as `(position, oldIndex)`. TS analog: `.forEach((oldIndex, position) => ...)` (note JS gives `(element, index)` — order flipped).
+- `case .front:` — switching over the local `Movement` enum.
 
 The comment explains the trick: it reorders *indices* (a stable identity), then re-derives every `order` from the final positions, which sidesteps any duplicate-`order` edge case.
 

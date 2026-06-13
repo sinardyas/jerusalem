@@ -41,23 +41,114 @@ for _ in 0..<200 {
 }
 ```
 
+**TypeScript equivalent (Jest)**
+
+```ts
+for (let i = 0; i < 200; i++) {
+  live.next();
+  expect(live.content).not.toEqual(LiveContent.empty);
+  // "navigator should never bottom out into the empty state"
+}
+```
+
+**Swift syntax:**
+- `for _ in 0..<200` — loop 200 times; `0..<200` is a *half-open range* (0 through 199, 200 excluded), and `_` discards the loop variable since it's unused. JS: `for (let i = 0; i < 200; i++)`.
+- `live.content != .empty` — `.empty` is enum-case shorthand for `LiveContent.empty`; `!=` compares the enum value. (`LiveContent` is `Equatable`.)
+- `XCTAssertNotEqual(a, b, "msg")` — the trailing string is the failure message.
+
 ### `testProgramSlidesAreSnapshotsAndSurviveContainerDrop` `@MainActor throws`
 Creates a song inside a `do { }` block, snapshots it into `[LiveState.ProgramSlide]`, and lets the `ModelContainer` + `ModelContext` deallocate at the brace. Outside the block — with the database gone — it arms the snapshots, steps once, and pattern-matches `.slide(let renderable)` to confirm the content still has elements. This is the edit/live-separation invariant in action: live output works on immutable value snapshots, so the model going away can't blank the audience screen.
 
 ```swift
-snapshots = LiveState.programSlides(for: song)
+let snapshots: [LiveState.ProgramSlide]
+do {
+    // ... build a song in a fresh container/context ...
+    snapshots = LiveState.programSlides(for: song)
 }   // context + container deallocate here
-...
+// ...
 if case .slide(let renderable) = live.content {
     XCTAssertFalse(renderable.elements.isEmpty)
+} else {
+    XCTFail("expected a slide snapshot, got \(live.content)")
 }
 ```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+let snapshots: ProgramSlide[];
+{
+  // ... build a song in a fresh container/context ...
+  snapshots = LiveState.programSlides(song);
+}   // analogy: the DB connection goes out of scope here (GC'd)
+// ...
+// `if case .slide(let renderable)` ≈ a tagged-union check that binds the payload.
+if (live.content.kind === "slide") {
+  const renderable = live.content.value;
+  expect(renderable.elements.length === 0).toBe(false);
+} else {
+  fail(`expected a slide snapshot, got ${live.content}`);
+}
+```
+
+**Swift syntax:**
+- `let snapshots: [LiveState.ProgramSlide]` — a declaration with an *explicit type* but no value yet; it's assigned exactly once inside the `do` block (Swift allows deferred assignment of a `let` if it's provably set before use). `[…]` is array-of; `ProgramSlide` is nested inside `LiveState`.
+- `do { }` — here a plain *scoping block* (not error handling): the `container`/`context` declared inside deallocate at the closing brace. That's the whole point — the test proves the snapshots survive the DB going away.
+- `if case .slide(let renderable) = live.content { }` — *pattern matching* on an enum with an associated value. `LiveContent` is a tagged union; the `.slide` case carries a `RenderableSlide` payload, and `let renderable` binds it. The closest TS shape is a discriminated union checked by `kind` with the payload pulled out.
+- `\(live.content)` — string interpolation (`${…}`) inside the failure message.
 
 ### `testSlidePrewarmerEvictsBeyondLimit` `@MainActor`
 Clears the shared `SlidePrewarmer`, then prewarms 12 distinct (slide × size) combinations against a default cache limit of 6. Asserts `cachedCount <= 6` — the LRU evicts so memory can't grow unbounded during a long service. Catches a prewarmer cache leak.
 
+```swift
+for n in 0..<12 {
+    let slide = RenderableSlide(
+        backgroundColorHex: String(format: "#%06X", n * 0x111111 % 0xFFFFFF),
+        elements: [])
+    _ = prewarmer.prewarm(slide, pixelSize: CGSize(width: 200, height: 112))
+}
+XCTAssertLessThanOrEqual(prewarmer.cachedCount, 6)
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+for (let n = 0; n < 12; n++) {
+  const slide = new RenderableSlide({
+    backgroundColorHex: "#" + ((n * 0x111111) % 0xFFFFFF).toString(16).padStart(6, "0").toUpperCase(),
+    elements: [],
+  });
+  prewarmer.prewarm(slide, { width: 200, height: 112});   // result discarded
+}
+expect(prewarmer.cachedCount).toBeLessThanOrEqual(6);
+```
+
+**Swift syntax:**
+- `for n in 0..<12` — half-open range loop (`n = 0…11`).
+- `String(format: "#%06X", …)` — C-style printf formatting; `%06X` is zero-padded 6-digit uppercase hex. JS: `.toString(16).padStart(6, "0").toUpperCase()`.
+- `_ = prewarmer.prewarm(...)` — `_ =` explicitly *discards* a return value. Swift warns about unused results from non-void functions; `_ =` silences it. In JS you'd just call it and ignore the value.
+
 ### `testSlidePrewarmerHitReturnsCachedImage` `@MainActor`
 Prewarms one slide, then asks for it again; the returned image must be the **same instance** (`first === cached`), proving a cache *hit* reuses the rendered image instead of re-rendering. Catches the cache silently missing on a repeated lookup.
+
+```swift
+let first = prewarmer.prewarm(slide, pixelSize: size)
+let cached = prewarmer.image(for: slide, pixelSize: size)
+XCTAssertNotNil(first)
+XCTAssertTrue(first === cached)
+```
+
+**TypeScript equivalent (Jest)**
+
+```ts
+const first = prewarmer.prewarm(slide, size);
+const cached = prewarmer.image(slide, size);
+expect(first).not.toBeNull();
+expect(first).toBe(cached);   // === reference identity, same object
+```
+
+**Swift syntax:**
+- `first === cached` — `===` is *reference identity* (same object instance), distinct from `==` (value equality). `CGImage` is a reference type, so this asserts the cache handed back the very same image, not an equal copy. JS `===` on objects behaves the same way (`toBe` in Jest).
 
 ## How it connects
 
@@ -66,3 +157,19 @@ Exercises `LiveState` (`programSlides`, `arm`, `next`, `previous`, `content`, `l
 ## What it does NOT cover
 
 This is headless soak only. The *real* reliability gate — driving an actual external display for a full service, AVFoundation playback smoothness, display unplug/replug recovery — is a hardware dress rehearsal documented in `docs/DRESS-REHEARSAL.md`. Passing this file proves the logic stays stable under load; it does not prove the hardware does.
+
+## Glossary (Swift → TS/Jest/Node)
+
+- **`final class FooTests: XCTestCase`** → `describe("Foo", ...)`.
+- **`func testX() throws`** → `it("x", ...)`; `throws` means a thrown error fails the test.
+- **`@MainActor`** → run on the main thread (SwiftData, `LiveState`, prewarmer); no JS equivalent.
+- **`XCTAssertNotNil(x)`** → `expect(x).not.toBeNull()`.
+- **`XCTFail("msg")`** → `fail("msg")` / forced failure in an unexpected branch.
+- **Half-open range `0..<200`** → `for (let i = 0; i < 200; i++)`.
+- **`_` (wildcard / `_ =`)** → discard an unused loop var or return value.
+- **`.empty` / `.slide` (enum shorthand)** → `EnumName.case` with the type inferred.
+- **`if case .slide(let x) = value`** → pattern-match a discriminated union and bind its payload (`value.kind === "slide"` → `value.value`).
+- **`===` vs `==`** → reference identity vs value equality; `toBe` vs `toEqual`.
+- **`String(format: "#%06X", n)`** → printf-style hex formatting (`.toString(16).padStart(6,"0")`).
+- **String interpolation `\(x)`** → `${x}`.
+- **`do { }` (plain block)** → a scoping `{ }` block; here it drops the DB connection to prove snapshots survive.

@@ -17,7 +17,7 @@ In the pipeline it's the front of the song flow: `ContentRebuilder.setLyrics` ca
 
 | Swift | JS/TS equivalent |
 |---|---|
-| `struct ParsedSongSection: Equatable, Sendable` | a value record (copied); `Equatable` = `==` works (handy in tests) |
+| `struct ParsedSongSection: Equatable, Sendable` | a value record (copied); `Equatable` = `==` works (handy in tests). Model as a TS `interface` |
 | `var number: Int?` | `number: number \| null` |
 | `enum SongLyricsParser { ... }` | a namespace of static functions |
 | `[String: SongSectionKind]` | `Record<string, SongSectionKind>` — alias word → kind |
@@ -44,6 +44,22 @@ struct ParsedSongSection: Equatable, Sendable {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+type SongSectionKind = "verse" | "chorus" | "bridge" | "tag";
+
+interface ParsedSongSection {
+  kind: SongSectionKind;
+  number: number | null;
+  lyrics: string;
+}
+```
+
+**Swift syntax:**
+- `struct ParsedSongSection: Equatable, Sendable` — value type, copied on assignment. `Equatable` gives a free `==` (so tests can round-trip and assert); `Sendable` = thread-safe to pass. Model as an `interface` in TS.
+- `var number: Int?` — optional integer, `number | null`.
+
 **Recognized markers.** A lowercase-word → kind table:
 
 ```swift
@@ -51,6 +67,17 @@ private static let kindAliases: [String: SongSectionKind] = [
     "verse": .verse, "chorus": .chorus, "bridge": .bridge, "tag": .tag,
 ]
 ```
+
+**TypeScript equivalent**
+
+```ts
+const kindAliases: Record<string, SongSectionKind> = {
+  verse: "verse", chorus: "chorus", bridge: "bridge", tag: "tag",
+};
+```
+
+**Swift syntax:**
+- `[String: SongSectionKind]` — a dictionary literal (`Record<string, ...>`). The values `.verse`, `.chorus` are `enum` cases written in shorthand (type inferred from the dictionary's value type), like the string union members in TS.
 
 **Parsing — the state machine.** `parse` walks the text line by line, accumulating lines into the *current* section. A nested `flush()` closure finalizes the current section whenever a new marker appears (or at the end). It trims leading/trailing blank lines and decides whether to keep the section:
 
@@ -67,6 +94,28 @@ func flush() {
     sections.append(ParsedSongSection(kind: currentKind, number: currentNumber, lyrics: lyrics))
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// flush() is a nested function closing over currentLines, sawMarker, sections, ...
+const flush = () => {
+  // drop leading + trailing blank lines (blank == only whitespace)
+  let start = 0, end = currentLines.length;
+  while (start < end && currentLines[start].trim() === "") start++;
+  while (end > start && currentLines[end - 1].trim() === "") end--;
+  const lyrics = currentLines.slice(start, end).join("\n");
+  // Only the implicit pre-marker block may be empty — and we skip it.
+  if (lyrics === "" && !sawMarker) return;
+  sections.push({ kind: currentKind, number: currentNumber, lyrics });
+};
+```
+
+**Swift syntax:**
+- `func flush() { ... }` *inside* `parse` — a nested function. It *captures* (closes over) the surrounding mutable locals (`currentLines`, `sawMarker`, `sections`, `currentKind`, `currentNumber`) and can read/mutate them, exactly like a JS inner arrow closing over the outer scope.
+- `.drop(while: { ... })` — returns a subsequence with leading elements dropped *while* the predicate holds (stops at the first that fails). To trim the *trailing* blanks too, the code reverses, drops-leading, then reverses back — a common functional trick. `$0` is each line.
+- `$0.trimmingCharacters(in: .whitespaces).isEmpty` — "this line is blank (only spaces)."
+- `if lyrics.isEmpty && !sawMarker { return }` — `&&` is logical AND, `!` is NOT, just like JS.
 
 The main loop: a marker line triggers `flush()` then resets the "current" state; any other line is appended to the buffer. A final `flush()` closes the last section:
 
@@ -85,6 +134,28 @@ for rawLine in text.components(separatedBy: .newlines) {
 flush()
 ```
 
+**TypeScript equivalent**
+
+```ts
+for (const rawLine of text.split(/\r?\n/)) {
+  const parsed = parseMarker(rawLine);
+  if (parsed != null) {
+    flush();
+    currentKind = parsed.kind;
+    currentNumber = parsed.number;
+    currentLines = [];
+    sawMarker = true;
+  } else {
+    currentLines.push(rawLine);
+  }
+}
+flush(); // close the last section
+```
+
+**Swift syntax:**
+- `if let parsed = parseMarker(rawLine) { ... } else { ... }` — `parseMarker` returns an optional tuple; `if let` unwraps it. Non-nil → it was a marker line; nil → ordinary lyric line.
+- `parsed.kind` / `parsed.number` — accessing members of a *labeled tuple* (the return type is `(kind: SongSectionKind, number: Int?)`), so you read fields by name, not position.
+
 Note `currentKind` starts as `.verse` and `sawMarker` as `false`, which is how pre-marker content becomes an unnumbered Verse (but is skipped if it's empty).
 
 **Recognizing a marker.** Must be bracketed; the inner word maps to a known kind, and an optional second token is the number:
@@ -101,6 +172,33 @@ let number: Int? = parts.count >= 2 ? Int(parts[1]) : nil
 return (kind, number)
 ```
 
+**TypeScript equivalent**
+
+```ts
+function parseMarker(line: string): { kind: SongSectionKind; number: number | null } | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return null;
+  const inner = trimmed.slice(1, -1).trim().toLowerCase();
+  if (inner === "") return null;
+
+  const parts = inner.split(/\s+/);
+  const head = parts[0];                       // parts.first.map(String.init)
+  const kind = head != null ? kindAliases[head] : undefined;
+  if (kind == null) return null;
+
+  const number = parts.length >= 2 ? toInt(parts[1]) : null; // Int(parts[1])
+  return { kind, number };
+}
+```
+
+**Swift syntax:**
+- `guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else { return nil }` — multiple comma-separated conditions in one `guard`; *all* must hold or the `else` runs. Equivalent to `if (!a || !b) return null;`.
+- `trimmed.dropFirst().dropLast()` — drop the first and last character (the brackets), yielding a `Substring`; `.lowercased()` then makes a `String`. Like `trimmed.slice(1, -1)`.
+- `inner.split(whereSeparator: { $0.isWhitespace })` — split on a character predicate (`(c) => c.isWhitespace`), i.e. `split(/\s+/)`.
+- `parts.first.map(String.init)` — `parts.first` is optional (`Substring?`); `.map(String.init)` converts it to `String?` *only if* present (optional-map; `undefined` stays `undefined`). Like `parts[0] != null ? String(parts[0]) : undefined`.
+- `parts.count >= 2 ? Int(parts[1]) : nil` — ternary; `Int(parts[1])` is the failable initializer returning `Int?` (nil on non-numeric), modeled as a `toInt` that returns `null`.
+- `return (kind, number)` — returns the labeled tuple `(kind:number:)`.
+
 So `[Verse 1]`, `[chorus]`, and `[ Bridge ]` all parse; `[Refrain]` returns `nil` (unknown word) and is treated as a normal lyric line.
 
 **Serializing back.** `format` is the inverse, used to re-pretty-print after a rebuild:
@@ -111,7 +209,30 @@ let header = section.number.map { "[\(section.kind.displayName) \($0)]" }
 return section.lyrics.isEmpty ? header : "\(header)\n\(section.lyrics)"
 ```
 
+**TypeScript equivalent**
+
+```ts
+const header = section.number != null
+  ? `[${section.kind.displayName} ${section.number}]` // labeled
+  : `[${section.kind.displayName}]`;                  // plain
+return section.lyrics === "" ? header : `${header}\n${section.lyrics}`;
+```
+
+**Swift syntax:**
+- `section.number.map { "[\(...) \($0)]" } ?? "[\(...)]"` — *optional-map then nil-coalesce*: if `number` is non-nil, run the closure (where `$0` is the unwrapped number) to build the labeled header; otherwise (`??`) fall back to the plain header. Reads as "if number exists, labeled; else plain."
+- `section.lyrics.isEmpty ? header : "\(header)\n\(section.lyrics)"` — a ternary choosing header-only vs header-plus-lyrics.
+
 Sections are joined with a blank line between them.
+
+```swift
+}.joined(separator: "\n\n")
+```
+
+**TypeScript equivalent**
+
+```ts
+}).join("\n\n");
+```
 
 **Worked example**
 

@@ -13,13 +13,14 @@ It's deliberately the playlist twin of `SlideGridView`: it reuses the same `Slid
 
 ## Swift you'll meet in this file
 
-- **`let playlist: Playlist`** — a non-optional prop; this view is only built when a playlist is actually selected.
-- **`var onActivate: (PersistentIdentifier) -> Void = { _ in }`** — a callback prop with a **default value** (an empty closure, so callers can omit it). `(PersistentIdentifier) -> Void` ≈ `(id) => void`.
+- **`struct PlaylistSlidesView: View { var body: some View }`** — SHAPE: value-type `struct` conforming to `View`, with a `body`. TS analog: `function PlaylistSlidesView(): JSX.Element { return (...) }`; `some View` ≈ `: JSX.Element`.
+- **`let playlist: Playlist`** — a non-optional prop; this view is only built when a playlist is actually selected. TS analog: `playlist: Playlist`.
+- **`var onActivate: (PersistentIdentifier) -> Void = { _ in }`** — a callback prop with a **default value** (an empty closure, so callers can omit it). SHAPE: `(arg) -> Void = { _ in }` ≈ `(id) => void` defaulting to `() => {}`.
 - **`private let columns = [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 18)]`** — grid track config. `.adaptive` packs as many columns as fit between the min/max widths (like CSS `repeat(auto-fill, minmax(200px, 280px))`).
-- **`LazyVGrid(columns:...) { ForEach(...) { Section { ... } header: { ... } } }`** — a virtualized vertical grid (`Lazy` = only builds visible cells); `Section` groups cells with a header; `ForEach` is `.map`.
+- **`LazyVGrid(columns:...) { ForEach(...) { Section { ... } header: { ... } } }`** — a virtualized vertical grid (`Lazy` = only builds visible cells); `Section` groups cells with a header; `ForEach` is `.map`. TS analog: a CSS grid with grouped sections.
 - **`pinnedViews: [.sectionHeaders]`** — makes section headers stick to the top while scrolling (CSS `position: sticky`).
 - **`reduce(0) { $0 + $1.slides.count }`** — like JS `.reduce((acc, g) => acc + g.slides.count, 0)`; `$0`/`$1` are the accumulator and current element.
-- **`ContentUnavailableView { ... } description: { ... }`** — the system empty-state placeholder.
+- **`ContentUnavailableView { ... } description: { ... }`** — the system empty-state placeholder. TS analog: an `<EmptyState>` with `title`/`description` slots.
 - **`.background(.bar)`** — the system toolbar/bar material (a translucent backdrop), keeping the header legible over scrolling content.
 
 ## Code walkthrough
@@ -38,6 +39,38 @@ struct PlaylistSlidesView: View {
     private var groups: [LiveState.ProgramGroup] { LiveState.groupedProgram(for: playlist) }
     private var slideCount: Int { groups.reduce(0) { $0 + $1.slides.count } }
 ```
+
+**TypeScript equivalent**
+
+```tsx
+type Props = {
+  playlist: Playlist;
+  liveSlideID?: PersistentIdentifier | null;
+  onActivate?: (id: PersistentIdentifier) => void;  // defaults to () => {}
+  onEdit?: (id: PersistentIdentifier) => void;
+};
+
+function PlaylistSlidesView({
+  playlist,
+  liveSlideID,
+  onActivate = () => {},
+  onEdit = () => {},
+}: Props): JSX.Element {
+  // analogy: GridItem(.adaptive(...)) -> CSS repeat(auto-fill, minmax(200px, 280px))
+  const columns = "repeat(auto-fill, minmax(200px, 280px))";
+
+  // computed properties -> derived values
+  const groups = LiveState.groupedProgram(playlist);
+  const slideCount = groups.reduce((acc, g) => acc + g.slides.length, 0);
+  // ...
+}
+```
+
+**Swift syntax:**
+- `var onActivate: (PersistentIdentifier) -> Void = { _ in }` — a closure-typed property defaulting to an empty closure; `{ _ in }` ignores its single arg. TS analog: `onActivate = () => {}`.
+- `private let columns = [...]` — `let` is an immutable constant. TS analog: `const`.
+- `private var groups: [...] { ... }` — a computed property (recomputed on access). TS analog: a getter.
+- `groups.reduce(0) { $0 + $1.slides.count }` — `.reduce` with a seed of `0`; `$0` = accumulator, `$1` = current group. TS analog: `.reduce((acc, g) => acc + g.slides.length, 0)`.
 
 `groups` asks `LiveState.groupedProgram(for:)` to build the per-item sections (each a title + its slides). The doc comment is explicit that these slide ids **match the armed flat program**, which is what makes click-to-go-live consistent. `slideCount` sums all slides across groups for the subtitle.
 
@@ -76,6 +109,50 @@ var body: some View {
 }
 ```
 
+**TypeScript equivalent**
+
+```tsx
+function body(): JSX.Element {
+  if (groups.length === 0) {
+    return (
+      <EmptyState
+        title="No Slides"
+        icon="rectangle.on.rectangle.slash"
+        description="Add items to this playlist from the sidebar."
+      />
+    );
+  }
+  return (
+    // analogy: ScrollView -> scroll container
+    <div className="scroll" data-title={playlist.name}
+         data-subtitle={`${slideCount} slide${slideCount === 1 ? "" : "s"}`}>
+      {/* analogy: LazyVGrid + pinnedViews:[.sectionHeaders] -> CSS grid with sticky headers */}
+      <div style={{ display: "grid", gridTemplateColumns: columns, gap: 18, padding: 20 }}>
+        {groups.map(group => (
+          <section key={group.id}>
+            <div style={{ position: "sticky", top: 0 }}>{sectionHeader(group.title)}</div>
+            {group.slides.map(slide => (
+              <SlideGridCell
+                key={slide.id}
+                slide={slide}
+                isLive={slide.id === liveSlideID}
+                onActivate={onActivate}
+                onEdit={onEdit}
+              />
+            ))}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+**Swift syntax:**
+- `ForEach(groups) { group in Section { ... } header: { ... } }` — nested trailing closures: the `Section` body builds cells, the `header:` closure builds the pinned header. TS analog: nested `.map` with a header element per section.
+- `slide.id == liveSlideID` — comparing an id to the optional `liveSlideID`; `==` works even when one side is `nil`. TS analog: `slide.id === liveSlideID`.
+- `LazyVGrid(columns: columns, alignment: .leading, spacing: 18, pinnedViews: [.sectionHeaders]) { ... }` — init args (`columns`, `alignment`, `pinnedViews`) plus a trailing content closure. `[.sectionHeaders]` is an array of enum cases. TS analog: a grid component with a `pinnedViews` prop.
+
 Read it as nested maps: for each `group`, emit a `Section` whose body maps `group.slides` into `SlideGridCell`s and whose header is `sectionHeader(group.title)`. Each cell decides whether it's live with `slide.id == liveSlideID`, and forwards the activate/edit callbacks. `pinnedViews: [.sectionHeaders]` keeps the item titles pinned as you scroll. The title bar shows the playlist name and a pluralized slide count.
 
 ### The pinned header
@@ -92,6 +169,28 @@ private func sectionHeader(_ title: String) -> some View {
     .background(.bar)
 }
 ```
+
+**TypeScript equivalent**
+
+```tsx
+function sectionHeader(title: string): JSX.Element {
+  return (
+    // analogy: HStack + Spacer -> a row with a flex spacer pushing content left
+    <div
+      className="row barMaterial"   // .background(.bar) -> translucent bar backdrop
+      style={{ width: "100%", padding: "8px 4px", justifyContent: "flex-start" }}
+    >
+      <Text className="headline">{title}</Text>
+      <div style={{ flex: 1 }} />
+    </div>
+  );
+}
+```
+
+**Swift syntax:**
+- `HStack { Text(...); Spacer() }` — a row; `Spacer()` expands to push siblings apart. TS analog: a flex row with a `flex: 1` spacer.
+- `.frame(maxWidth: .infinity, alignment: .leading)` — stretch to full width, content left-aligned. TS analog: `width: 100%; justify-content: flex-start`.
+- `.background(.bar)` — the system bar material. TS analog: a translucent backdrop class.
 
 A left-aligned title with a `.bar` material background so it stays readable while slides scroll underneath it.
 

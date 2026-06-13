@@ -17,16 +17,16 @@ The defensive design matters: the string-to-color initializers are *failable* (t
 
 | Swift | JS/TS meaning |
 | --- | --- |
-| `extension NSColor { ... }` | Add members to an existing type (like extending a prototype, but scoped/typed) |
-| `convenience init?(hex: String)` | A failable constructor — returns `null` (the whole init) on bad input |
-| `var s = hex.trimming...` | A mutable local (`let` in JS); `let` would be `const` |
-| `guard let value = UInt64(s, radix: 16) else { return nil }` | Parse hex to an unsigned int; bail to `null` if it isn't valid hex |
-| `(value >> 16) & 0xFF` | Bit-shift and mask — same operators as JS |
-| `switch s.count { case 6: ...; case 8: ...; default: return nil }` | Branch on string length |
-| `self.init(srgbRed:green:blue:alpha:)` | Call the real constructor with the parsed channels |
-| `var hexString: String { ... }` | A computed property (a getter), like a TS `get hexString()` |
+| `extension NSColor { ... }` | Add members to an existing type — like patching a prototype, but scoped and type-safe |
+| `convenience init?(hex: String)` | A **failable** constructor: the whole init returns `null` on bad input. Shape `init?` = "may return null" |
+| `var s = hex.trimming...` | A mutable local (`let s = ...` in JS); Swift `let` would be `const` |
+| `guard let value = UInt64(s, radix: 16) else { return nil }` | Parse hex → unsigned int; bail to `null` if it isn't valid hex |
+| `(value >> 16) & 0xFF` | Bit-shift + mask — same operators as JS |
+| `switch s.count { case 6: ...; case 8: ...; default: return nil }` | Branch on string length; `default` ≈ the `else`/`default` arm |
+| `self.init(srgbRed:green:blue:alpha:)` | Delegate to the real constructor with the parsed channels |
+| `var hexString: String { ... }` | A **computed property** (getter), like `get hexString()` in TS |
 | `String(format: "#%02X%02X%02X", ...)` | `printf`-style formatting — two-digit uppercase hex per channel |
-| `usingColorSpace(.sRGB) ?? self` | Convert to sRGB; if that returns null, keep the original |
+| `usingColorSpace(.sRGB) ?? self` | Convert to sRGB; if that returns null, keep `self` (the original) |
 
 ## Code walkthrough
 
@@ -52,7 +52,41 @@ convenience init?(hex: String) {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// A "failable constructor" — model it as a factory returning NSColor | null.
+function NSColorFromHex(hex: string): NSColor | null {
+  let s = hex.trim();
+  if (s.startsWith("#")) s = s.slice(1);
+
+  const value = parseHex(s);            // UInt64(s, radix: 16)
+  if (value == null) return null;       // guard ... else return nil
+
+  let r: number, g: number, b: number, a: number;
+  switch (s.length) {
+    case 6:
+      r = (value >> 16) & 0xff; g = (value >> 8) & 0xff; b = value & 0xff; a = 0xff;
+      break;
+    case 8:
+      r = (value >> 24) & 0xff; g = (value >> 16) & 0xff;
+      b = (value >> 8) & 0xff;  a = value & 0xff;
+      break;
+    default:
+      return null;
+  }
+  return new NSColor({ srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: a / 255 });
+}
+```
+
 It trims whitespace, strips a leading `#`, and parses the rest as base-16. If parsing fails, the whole initializer returns `nil` (the `?` on `init?`). It then splits the integer into channels: 6 digits means RGB with full opacity; 8 digits means RGBA; any other length is invalid and returns `nil`. Each channel is divided by 255 to get the `0.0...1.0` range AppKit wants, in the sRGB color space.
+
+**Swift syntax:**
+- `extension NSColor { ... }` — reopens a type you don't own to add members; everywhere else can then call `NSColor(hex:)`. Like patching a prototype, but scoped to where the extension is visible and fully type-checked.
+- `convenience init?(hex:)` — a **failable initializer**: the trailing `?` means it can `return nil`, so its result type is effectively `NSColor?`. `convenience` means it delegates to a primary `self.init(...)` rather than setting every stored field itself.
+- `var s = ...` — a mutable local (`let` in JS); needed because `s` is reassigned (`removeFirst()`).
+- `guard let value = UInt64(s, radix: 16) else { return nil }` — try to parse; if it fails, bail out, otherwise `value` is the unwrapped non-optional int for the rest of the scope.
+- `let r, g, b, a: UInt64` — declare four constants of one type up front, assigned later inside the `switch` (definite-assignment, like declaring `let` then assigning once per branch).
 
 ### `NSColor.hexString` — color to string
 
@@ -66,7 +100,27 @@ var hexString: String {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// A computed getter on NSColor.
+get hexString(): string {
+  const converted = this.usingColorSpace("sRGB") ?? this;
+  const r = Math.round(converted.redComponent * 255);
+  const g = Math.round(converted.greenComponent * 255);
+  const b = Math.round(converted.blueComponent * 255);
+  const clamp = (n: number) => Math.max(0, Math.min(255, n));
+  const hex2 = (n: number) => clamp(n).toString(16).padStart(2, "0").toUpperCase();
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`; // String(format: "#%02X%02X%02X", ...)
+}
+```
+
 It first normalizes to sRGB (some colors live in other color spaces and would give nonsense channel values otherwise), reads each channel back as `0...255`, clamps to be safe, and formats as `#RRGGBB`. Note: alpha is intentionally dropped on the way out — this getter produces the 6-digit form.
+
+**Swift syntax:**
+- `var hexString: String { ... }` — a **computed property** (no stored value; runs the block on each access), exactly a TS `get hexString()`.
+- `usingColorSpace(.sRGB) ?? self` — `??` falls back to the original color if conversion returns `nil`.
+- `String(format: "#%02X%02X%02X", ...)` — C-style format string: `%02X` = two-digit, zero-padded, uppercase hex.
 
 ### SwiftUI `Color` bridge
 
@@ -82,7 +136,26 @@ extension Color {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// Reuse the NSColor logic so there's one source of truth.
+function ColorFromHex(hex: string): Color {
+  // NOT failable: fall back to white so the editor never shows an invisible color
+  return Color.fromNSColor(NSColorFromHex(hex) ?? NSColor.white);
+}
+
+// get hexString(): round-trip through NSColor to resolve a concrete sRGB triple
+function colorHexString(color: Color): string {
+  return new NSColor(color).hexString;
+}
+```
+
 These reuse the `NSColor` logic so there's one source of truth. The SwiftUI `Color(hex:)` is *not* failable — it falls back to white if the hex is bad, so an editor `ColorPicker` always gets a visible color. `Color.hexString` round-trips through `NSColor` because SwiftUI's dynamic colors don't directly expose concrete channel values; bouncing through `NSColor` resolves them to a real sRGB triple.
+
+**Swift syntax:**
+- `init(hex string: String)` — `hex` is the external label, `string` is the internal name. Callers write `Color(hex: "...")` but the body uses `string`. This is a non-failable `init` (no `?`), so it always produces a `Color`.
+- `self = Color(...)` — in a value-type initializer you can assign the whole instance to `self`.
 
 ## How it connects
 

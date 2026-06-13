@@ -15,13 +15,13 @@ It's explicitly best-effort. The doc comment is honest that this isn't a guarant
 
 ## Swift you'll meet in this file
 
-- `@MainActor final class` with `static let shared` — a singleton (one global instance), pinned to the main/UI thread.
-- `AVURLAsset` — AVFoundation's representation of a media file, which can load metadata/buffers asynchronously.
+- `@MainActor final class` with `static let shared` — a singleton (one global instance), pinned to the main/UI thread. Shape: `class X { static shared = new X() }` plus `// must run on the main/UI thread`.
+- `AVURLAsset` — AVFoundation's representation of a media file, which can load metadata/buffers asynchronously → the `<video>` source object that lazily buffers.
 - `[URL: AVURLAsset]` — a dictionary (`Map<URL, AVURLAsset>`); `[URL]` is an array used to track insertion order.
-- `Task { ... }` — fire-and-forget async work (same idea as in JS).
+- `Task { ... }` — fire-and-forget async work → `void (async () => { … })()`.
 - `await asset.load(.isPlayable, .duration)` — async load of the asset's properties; `try?` swallows errors into `nil`.
 - `T?`, `if let existing = ...` (bind-or-skip), `guard ... else { return }` early exit.
-- `_ = ...` — explicitly discard a result.
+- `_ = ...` — explicitly discard a result → `void expr`.
 
 ## Code walkthrough
 
@@ -37,6 +37,24 @@ final class VideoPrewarmer {
     private let limit = 4
 ```
 
+**TypeScript equivalent**
+
+```ts
+// must run on the main/UI thread (@MainActor)
+class VideoPrewarmer {
+  static shared = new VideoPrewarmer();   // static let shared = … (singleton)
+
+  private assets = new Map<URL, AVURLAsset>();  // [URL: AVURLAsset]
+  private order: URL[] = [];                     // insertion order for eviction
+  private readonly limit = 4;                     // bounded cache
+}
+```
+
+**Swift syntax:**
+- `static let shared = VideoPrewarmer()` — the singleton pattern: one lazily-created, thread-safe global instance accessed as `VideoPrewarmer.shared`. → `static shared = new VideoPrewarmer()`.
+- `private var assets: [URL: AVURLAsset] = [:]` — a dictionary literal; `[:]` is the empty-dictionary literal (vs `[]` for an empty array). → `new Map()`.
+- `private let limit = 4` — an immutable instance constant → `readonly limit = 4`.
+
 `asset(for:)` is the shared accessor used by both prewarming *and* the live player:
 
 ```swift
@@ -49,6 +67,31 @@ func asset(for url: URL) -> AVURLAsset {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+asset(url: URL): AVURLAsset {
+  const existing = this.assets.get(url);
+  if (existing) return existing;            // if let existing { return existing }
+
+  const asset = new AVURLAsset(url);
+  this.store(asset, url);
+
+  // Task { … } — fire-and-forget async; warms buffers in the background.
+  // try? ⇒ swallow any error (a failed prewarm must never throw)
+  void (async () => {
+    try { await asset.load("isPlayable", "duration"); } catch { /* ignore */ }
+  })();
+
+  return asset;
+}
+```
+
+**Swift syntax:**
+- `if let existing = assets[url] { return existing }` — dictionary subscript returns an optional (`AVURLAsset?`); `if let` enters only on a cache hit → `const x = map.get(url); if (x) …`.
+- `Task { … }` — spawns a detached async task that runs independently; nothing awaits it (fire-and-forget) → an immediately-invoked async arrow `void (async () => {})()`.
+- `_ = try? await asset.load(...)` — `await` suspends for the async load; `try?` turns a thrown error into `nil` (swallowing it); `_ =` discards the result. → `try { await … } catch {}`.
+
 On a cache hit it returns the existing asset (so buffering is reused). On a miss it creates the asset, caches it, and kicks off an async load of `.isPlayable` and `.duration` in a fire-and-forget `Task` — that async load is what warms the buffers. The errors are swallowed with `try?` because a failed prewarm should never throw; the live `VideoPlayerView` will handle a bad file by showing black anyway.
 
 `prewarm(_:)` is what the live code calls to warm the *next* clip:
@@ -59,6 +102,21 @@ func prewarm(_ cue: VideoCue?) {
     _ = asset(for: cue.url)
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+prewarm(cue: VideoCue | null) {
+  // guard let cue, !cue.loops, fileExists(...) else { return }
+  // ⇒ all conditions must hold: non-null, NOT a loop, file present
+  if (!(cue && !cue.loops && fileExists(cue.url.path))) return;
+  void this.asset(cue.url);   // side effect (cache + async load) is the point
+}
+```
+
+**Swift syntax:**
+- `guard let cue, !cue.loops, FileManager…fileExists(...) else { return }` — a compound `guard` that both *unwraps* the optional (`let cue`, the shorthand for `let cue = cue`) and checks two booleans; if any fails, it returns. After it, `cue` is the non-optional value for the rest of the function.
+- `_ = asset(for: cue.url)` — discards the return value; we only want the side effect (caching + kicking off the load) → `void this.asset(...)`.
 
 It only warms non-looping clips that actually exist on disk — a loop "starts once and stays," so there's nothing to pre-warm, and a missing file is skipped. It just calls `asset(for:)` and discards the return value (the side effect — caching + async load — is the point).
 
@@ -73,6 +131,24 @@ private func store(_ asset: AVURLAsset, for url: URL) {
     }
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+private store(asset: AVURLAsset, url: URL) {
+  this.assets.set(url, asset);
+  this.order.push(url);
+  while (this.order.length > this.limit) {
+    // evict oldest: setting a dict value to nil REMOVES the key in Swift
+    this.assets.delete(this.order.shift()!);
+  }
+}
+```
+
+**Swift syntax:**
+- `assets[url] = asset` — dictionary insert/update by subscript → `map.set(url, asset)`.
+- `assets[order.removeFirst()] = nil` — two things at once: `order.removeFirst()` pops (and returns) the oldest URL; assigning `nil` to a dictionary subscript **deletes** that key. So this evicts the least-recently-added entry. → `map.delete(order.shift())`.
+- `while order.count > limit` — repeats eviction until the cache is back within `limit` → a `while` loop.
 
 It records the asset and its URL, then evicts the oldest entries until the cache is back at or under `limit` (4).
 

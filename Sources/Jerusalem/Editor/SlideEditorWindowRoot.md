@@ -15,13 +15,13 @@ It also defines and fires a notification: when the editor window closes, it post
 
 ## Swift you'll meet in this file
 
-- `extension Notification.Name { static let slideEditorDidClose = … }` — defines a named notification constant (a typed string key), like declaring an event name. `NotificationCenter` ≈ a global event bus / `EventEmitter`.
-- `struct SlideEditorWindowRoot: View { var body: some View }` — a SwiftUI view ≈ React component.
-- `let itemID: PersistentIdentifier?` — an optional SwiftData row id (`T | null`); `@Environment(\.modelContext)` — the injected SwiftData session.
+- `extension Notification.Name { static let slideEditorDidClose = … }` — adds a named constant to an existing type (a typed string key), like declaring an event name. `NotificationCenter` ≈ a global event bus / `EventEmitter`.
+- `struct SlideEditorWindowRoot: View { var body: some View }` — a SwiftUI view ≈ React component; `some View` = opaque return type.
+- `let itemID: PersistentIdentifier?` — an optional SwiftData row id (`T | null`); `@Environment(\.modelContext)` — pull the injected SwiftData session out of context (≈ `useContext`).
 - `modelContext.model(for: itemID) as? Item` — fetch a model by its id, then **conditionally cast** (`as?` returns nil if it isn't an `Item`).
-- `if let itemID, let item = … as? Item { … } else { … }` — chained optional binding; both must succeed or you fall to `else`.
+- `if let itemID, let item = … as? Item { … } else { … }` — chained **optional binding**; both must succeed or you fall to `else`.
 - `Group { … }` — a transparent container to return one of several views from a conditional.
-- `.onDisappear { … }` — a teardown effect when the view leaves the screen.
+- `.onDisappear { … }` — a teardown effect when the view leaves the screen (≈ a `useEffect` cleanup).
 
 ## Code walkthrough
 
@@ -32,6 +32,20 @@ extension Notification.Name {
     static let slideEditorDidClose = Notification.Name("id.soechi.slideEditorDidClose")
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// analogy: NotificationCenter ≈ a global EventEmitter / event bus
+// extension Notification.Name { static let … } → adding a named event constant
+export const NotificationName = {
+  slideEditorDidClose: "id.soechi.slideEditorDidClose",
+} as const;
+```
+
+**Swift syntax:**
+- `extension Notification.Name { … }` — an **extension** adds members to a type you don't own (here Apple's `Notification.Name`). TS analog: declaring a new constant alongside (you can't truly reopen a type, so you add to a const namespace).
+- `static let slideEditorDidClose = …` — a type-level constant. TS analog: a `const` property on an object.
 
 Just a constant for the event name, namespaced with a reverse-DNS string to avoid collisions. The operator window subscribes to this elsewhere.
 
@@ -51,6 +65,49 @@ var body: some View {
     .onDisappear { NotificationCenter.default.post(name: .slideEditorDidClose, object: nil) }
 }
 ```
+
+**TypeScript equivalent**
+
+```tsx
+function SlideEditorWindowRoot({ itemID }: { itemID: PersistentID | null }) {
+  const modelContext = useModelContext(); // analogy: @Environment(\.modelContext)
+
+  // chained optional binding: itemID must be non-null AND resolve to an Item
+  const item =
+    itemID != null ? (modelContext.model(itemID) as Item | undefined) : undefined;
+
+  // analogy: .onDisappear → useEffect cleanup that fires on unmount
+  useEffect(() => {
+    return () => {
+      NotificationCenter.post(NotificationName.slideEditorDidClose); // re-arm operator window
+    };
+  }, []);
+
+  // analogy: Group { if … else … } → return one branch or the other
+  if (item) {
+    return (
+      <SlideEditorView
+        item={item}
+        slideID={item.orderedSlides[0]?.persistentModelID ?? null} // ?. → null if no slides
+      />
+    );
+  }
+  return (
+    <ContentUnavailableView
+      title="Item Unavailable"
+      systemImage="rectangle.slash"
+      description="This item could not be loaded for editing."
+    />
+  );
+}
+```
+
+**Swift syntax:**
+- `if let itemID, let item = modelContext.model(for: itemID) as? Item { … }` — **chained optional binding**: each `let` unwraps an optional; if *any* is `nil` the whole `if` fails to the `else`. `as? Item` is a **conditional cast** (yields `Item?`, `nil` if the type doesn't match). TS analog: `const item = itemID != null ? (… as Item | undefined) : undefined; if (item) { … }`.
+- `item.orderedSlides.first?.persistentModelID` — `.first` is `Element?` (the array may be empty); `?.` is **optional chaining** (skip and yield `nil` if there's no first slide). TS analog: `arr[0]?.persistentModelID`.
+- `Group { … }` — wraps a conditional so the property still returns a single `some View`. TS analog: returning one branch of an `if`/`else`.
+- `.onDisappear { … }` — runs the closure when the view unmounts. TS analog: a `useEffect` cleanup.
+- `NotificationCenter.default.post(name: .slideEditorDidClose, object: nil)` — `.slideEditorDidClose` is **leading-dot syntax** (Swift infers the type, so you omit `Notification.Name`). TS analog: `emitter.emit(NotificationName.slideEditorDidClose)`.
 
 - **The double `if let`** unwraps the optional id *and* fetches+casts the model in one condition. `modelContext.model(for:)` re-hydrates the live `Item` from the shared container — this is what turns the serializable id back into a usable model object.
 - **`slideID: item.orderedSlides.first?.persistentModelID`** opens the editor on the first slide if there is one. The `?.` means: if there are no slides, pass `nil` and let `SlideEditorView` show its empty state. (Recall `SlideEditorView` is built to open on an item with zero slides.)

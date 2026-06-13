@@ -18,8 +18,8 @@ It sits at the tail of the pipeline: `ContentRebuilder.materialize` calls `Theme
 | Swift | JS/TS equivalent |
 |---|---|
 | `extension Theme { ... }` | adding methods to an existing class from another file — like augmenting a class via a mixin / `Object.assign(Theme.prototype, {...})` |
-| `static func makeDefault() -> Theme` | a static factory: `Theme.makeDefault()`, like `Theme.makeDefault()` returning a new instance |
-| `func apply(to slide: Slide)` | an instance method; `to slide` is an external/internal label — call site reads `theme.apply(to: slide)` |
+| `static func makeDefault() -> Theme` | a static factory: `Theme.makeDefault()` returning a new instance |
+| `func apply(to slide: Slide)` | an instance method; `to slide` is an external label/internal name — call site reads `theme.apply(to: slide)` |
 | two `apply(to:)` overloads | method overloading by parameter type — Swift picks `Slide` vs `SlideElement` automatically |
 | `theme.backgroundColorHex = "#0F172A"` | setting a property; the hex string is the stored color |
 | `element.fontSize = fontSize` | RHS `fontSize` is the theme's own property (implicit `self.fontSize`) |
@@ -39,6 +39,27 @@ static func makeDefault() -> Theme {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// extension Theme { ... } → add these as methods on the Theme class.
+class Theme {
+  static makeDefault(): Theme {
+    const theme = new Theme("Default Dark");
+    theme.backgroundColorHex = "#0F172A"; // dark navy
+    theme.fontName = "Avenir Next";
+    theme.fontSize = 56;
+    theme.textColorHex = "#FFFFFF";       // white
+    return theme;
+  }
+  // ... apply / copy below
+}
+```
+
+**Swift syntax:**
+- `extension Theme { ... }` — reopens the existing `Theme` class (defined elsewhere, a SwiftData model) and adds members to it. No subclassing, no new type — the methods become part of `Theme` itself. Closest TS analog is declaring more methods on the class, or `Object.assign(Theme.prototype, { ... })`.
+- `static func makeDefault() -> Theme` — a *type method* (factory) you call as `Theme.makeDefault()`. `let theme = Theme(name: "Default Dark")` constructs an instance via the labeled initializer.
+
 **Apply to a slide.** Slides only carry a background, so this is a one-liner:
 
 ```swift
@@ -46,6 +67,17 @@ func apply(to slide: Slide) {
     slide.backgroundColorHex = backgroundColorHex
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+applyToSlide(slide: Slide): void {
+  slide.backgroundColorHex = this.backgroundColorHex;
+}
+```
+
+**Swift syntax:**
+- `func apply(to slide: Slide)` — `to` is the external argument label (call site: `theme.apply(to: slide)`), `slide` the name used inside. Inside the body, the bare `backgroundColorHex` means `self.backgroundColorHex` (the theme's own property) — `self.` is implicit.
 
 **Apply to an element.** This is the bulk of the file — it copies *every* typography and effect property from the theme onto a new text element (font, color, alignment, bold/italic/underline, shadow, stroke, auto-fit, line/letter spacing, etc.). Geometry (position/size) is deliberately left at the renderer's default centered frame:
 
@@ -60,6 +92,23 @@ func apply(to element: SlideElement) {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// Overloaded by type in Swift; here a distinctly named method.
+applyToElement(element: SlideElement): void {
+  element.fontName = this.fontName;
+  element.fontSize = this.fontSize;
+  element.colorHex = this.textColorHex;
+  element.alignment = this.alignment;
+  element.isBold = this.isBold;
+  // ... shadow, stroke, autoFit, spacing, etc.
+}
+```
+
+**Swift syntax:**
+- Two `apply(to:)` methods with the same name — one takes `Slide`, one takes `SlideElement`. This is *overloading by parameter type*; the compiler chooses based on the argument. TS can't cleanly dispatch overloads by object type at the call site, so the translation uses two names (`applyToSlide` / `applyToElement`).
+
 **Copy back from an element.** The mirror image — reads a styled element's properties into the theme so future "Add Text" clicks inherit the look the user just dialed in:
 
 ```swift
@@ -70,6 +119,20 @@ func copy(from element: SlideElement) {
     // ... same property set, reversed direction
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+copyFrom(element: SlideElement): void {
+  this.fontName = element.fontName;
+  this.fontSize = element.fontSize;
+  this.textColorHex = element.colorHex;
+  // ... same property set, reversed direction
+}
+```
+
+**Swift syntax:**
+- `fontName = element.fontName` — the bare left-hand `fontName` is `self.fontName` (the theme's property); the right-hand reads from the element. So this method flows element → theme, the exact reverse of `apply(to:)`.
 
 ## How it connects
 

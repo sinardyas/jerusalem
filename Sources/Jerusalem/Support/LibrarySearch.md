@@ -15,11 +15,11 @@ The rule is "all tokens must appear, anywhere, any order." It splits the query o
 
 | Swift | JS/TS meaning |
 | --- | --- |
-| `enum LibrarySearch { static func ... }` | A namespace of static functions — no instances |
-| `query.split(whereSeparator: \.isWhitespace)` | `query.split(/\s+/)` — split on whitespace; `\.isWhitespace` is a key-path passed as the predicate |
-| `guard !tokens.isEmpty else { return true }` | Early return: if no tokens, match everything |
-| `tokens.allSatisfy { ... }` | `tokens.every(token => ...)` — true only if the callback is true for all |
-| `text.localizedCaseInsensitiveContains($0)` | Case-insensitive (and locale-aware) `text.includes(token)`; `$0` is the implicit first argument |
+| `enum LibrarySearch { static func ... }` | A **caseless enum** as a namespace of static functions — no instances ≈ `export const LibrarySearch = { ... }` |
+| `query.split(whereSeparator: \.isWhitespace)` | `query.split(/\s+/)`; `\.isWhitespace` is a **key path** used as the "is separator?" predicate |
+| `guard !tokens.isEmpty else { return true }` | Early return: if no tokens, match everything (`if (tokens.length === 0) return true`) |
+| `tokens.allSatisfy { ... }` | `tokens.every(token => ...)` — true only if the callback holds for all |
+| `text.localizedCaseInsensitiveContains($0)` | Case-insensitive, locale-aware `text.includes(token)`; `$0` is the closure's implicit first arg |
 
 ## Code walkthrough
 
@@ -33,11 +33,31 @@ static func matches(query: String, in text: String) -> Bool {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// analogy: a namespace object of pure functions.
+export const LibrarySearch = {
+  matches(query: string, text: string): boolean {
+    const tokens = query.split(/\s+/).filter(Boolean); // split on whitespace
+    if (tokens.length === 0) return true;              // empty query => match all
+    const haystack = text.toLocaleLowerCase();
+    return tokens.every(t => haystack.includes(t.toLocaleLowerCase()));
+  },
+};
+```
+
 Line by line:
 
 - `query.split(whereSeparator: \.isWhitespace)` breaks the query into words, dropping the whitespace. `\.isWhitespace` is a *key path* — a compact reference to the `isWhitespace` property of each character, used here as the "is this a separator?" test.
 - `guard !tokens.isEmpty else { return true }` short-circuits: a blank or whitespace-only query produces zero tokens, and the convention is that an empty search matches everything.
 - `tokens.allSatisfy { text.localizedCaseInsensitiveContains($0) }` returns true only when *every* token is found in the text. `localizedCaseInsensitiveContains` ignores case and respects the user's locale (so accented characters compare sensibly). `$0` is shorthand for the closure's single argument (the current token).
+
+**Swift syntax:**
+- `enum LibrarySearch { static func ... }` — a **caseless `enum`** used purely as a namespace (no instances). `static func` = a function on the type itself, called `LibrarySearch.matches(...)`. The idiomatic TS analog is a plain object of functions.
+- `\.isWhitespace` — a **key path**: a first-class reference to a property, here `Character.isWhitespace`, passed where a `(Character) -> Bool` predicate is expected. Roughly `c => c.isWhitespace` written compactly.
+- `tokens.allSatisfy { ... }` — `.allSatisfy` is `Array.every`. The `{ ... }` is a **trailing closure** (the callback written after the call); `$0` is its implicit first parameter, so `{ text...contains($0) }` ≈ `t => text.includes(t)`.
+- `guard ... else { return true }` — early-exit guard; the `else` block must leave the scope.
 
 There's also a thin convenience overload that just flips the argument order for readability at call sites:
 
@@ -46,6 +66,18 @@ static func matches(title: String, query: String) -> Bool {
     matches(query: query, in: title)
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// overload with flipped argument order for readability at call sites
+matches_title(title: string, query: string): boolean {
+  return LibrarySearch.matches(query, title);
+}
+```
+
+**Swift syntax:**
+- Two functions can share the name `matches` but differ by **argument labels** (`query:in:` vs `title:query:`) — Swift treats them as distinct overloads. There's no implicit `return` keyword here because a single-expression function body returns that expression automatically.
 
 ## How it connects
 

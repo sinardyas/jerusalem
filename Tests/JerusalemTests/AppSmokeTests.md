@@ -28,6 +28,26 @@ XCTAssertEqual(SlideEditorView.EditorMode.show.rawValue, "Show")
 XCTAssertEqual(SlideEditorView.EditorMode.edit.rawValue, "Edit")
 ```
 
+**TypeScript equivalent (Jest)**
+
+```ts
+// analogy: a TS string enum stands in for Swift's String-backed enum.
+enum EditorMode {
+  Show = "Show",
+  Edit = "Edit",
+}
+
+expect(Object.values(EditorMode).length).toEqual(2); // analogy: allCases.count
+expect(EditorMode.Show).toEqual("Show");             // analogy: .show.rawValue
+expect(EditorMode.Edit).toEqual("Edit");
+```
+
+**Swift syntax:**
+- `final class AppSmokeTests: XCTestCase { … }` — shape: a class that subclasses `XCTestCase` becomes a test suite; `final` just means "no subclassing." Jest analog: `describe("AppSmokeTests", () => { … })`.
+- `func testSlideEditorModeHasShowAndEdit()` — shape: any method whose name starts with `test` is auto-discovered and run as a test case. Jest analog: `it("slideEditorModeHasShowAndEdit", () => { … })` — the method name *is* the `it` title.
+- `XCTAssertEqual(a, b)` — shape: the workhorse equality assert. Jest analog: `expect(a).toEqual(b)`.
+- `enum … : String, CaseIterable` (the `EditorMode` it inspects) — shape: a `String`-backed enum gets `.rawValue` (the backing string) for free, and `CaseIterable` synthesizes `.allCases` (an array of every case). Jest analog: a TS string enum plus `Object.values(MyEnum)`.
+
 `allCases.count` works because the enum conforms to `CaseIterable` (Swift auto-generates an `allCases` array — like `Object.values(MyEnum)`). The `rawValue` is the underlying `String` each case is backed by (similar to a TypeScript string enum `enum EditorMode { Show = "Show", Edit = "Edit" }`).
 
 **Real bug it would catch:** if `@testable import Jerusalem` broke (renamed module, missing target dependency) or if someone deleted/renamed the `EditorMode` enum, this test would fail to compile — surfacing a broken test setup immediately rather than letting the whole suite silently rot.
@@ -39,3 +59,10 @@ Exercises `SlideEditorView.EditorMode` from the app module. More importantly, it
 
 ## What it does NOT cover
 Everything meaningful. No persistence, no rendering, no live output, no UI behavior. It is intentionally trivial.
+
+## XCTest → Jest glossary
+- `final class X: XCTestCase { }` — shape: subclass of `XCTestCase` holding the tests. Jest analog: `describe("X", () => { … })`.
+- `func testFoo()` — shape: method whose name starts with `test`, auto-run. Jest analog: `it("foo", () => { … })` (the method name becomes the title).
+- `XCTAssertEqual(a, b)` — shape: deep/value equality assertion. Jest analog: `expect(a).toEqual(b)`.
+- `@testable import Jerusalem` — shape: imports the app module *with internal access* so tests can see non-public symbols. Jest analog: `import { … } from "../src"` (Jest has no access-level concept; everything exported is reachable).
+- `enum … : String` / `.rawValue` / `CaseIterable` / `.allCases` — shape: a string-backed enum exposes each case's backing string via `.rawValue`, and `CaseIterable` gives an `.allCases` array. Jest analog: a TS string enum + `Object.values(MyEnum)`.

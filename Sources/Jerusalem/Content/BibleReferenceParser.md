@@ -17,10 +17,10 @@ In the pipeline it sits right after the catalog and right before the store: pars
 
 | Swift | JS/TS equivalent |
 |---|---|
-| `struct BibleReference: Equatable, Sendable` | a value-type record (copied, not shared); `Equatable` = has `==`; `Sendable` = safe to pass across threads |
+| `struct BibleReference: Equatable, Sendable` | a value-type record (copied, not shared); `Equatable` = has `==`; `Sendable` = safe to pass across threads. Model as a TS `interface` |
 | `var verses: ClosedRange<Int>?` | `verses: {lower:number, upper:number} \| null` — an inclusive range `16...18`, or null = "whole chapter" |
 | `var displayText: String { ... }` | a computed getter (like a TS `get displayText()`) |
-| `guard let verses else { return ... }` | `if (verses == null) return ...` — an early-exit null check |
+| `guard let verses else { return ... }` | `if (verses == null) return ...` — an early-exit null check that *unwraps* on success |
 | `"\(book) \(chapter)"` | template literal `` `${book} ${chapter}` `` |
 | `enum BibleReferenceParser { static func parse(...) }` | `export const BibleReferenceParser = { parse() {...} }` |
 | `input.split(whereSeparator: \.isWhitespace)` | `input.split(/\s+/)` — `\.isWhitespace` is a key-path predicate |
@@ -29,6 +29,7 @@ In the pipeline it sits right after the catalog and right before the store: pars
 | `token.firstIndex(of: ":")` | `str.indexOf(":")`, returning a `String.Index` or `nil` |
 | `Int(token[..<colon])` | `parseInt` that returns `null` instead of `NaN` on failure |
 | `start...end` | builds the inclusive range value |
+| labeled tuple `(Int, ClosedRange<Int>?)` | a fixed-shape pair `[number, Range \| null]`, destructured on return |
 
 ## Code walkthrough
 
@@ -44,6 +45,33 @@ var displayText: String {
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+interface ClosedRange { lower: number; upper: number; } // inclusive 16..18
+
+interface BibleReference {
+  book: string;
+  chapter: number;
+  verses: ClosedRange | null; // null = whole chapter
+}
+
+function displayText(ref: BibleReference): string {
+  const { book, chapter, verses } = ref;
+  if (verses == null) return `${book} ${chapter}`;          // "Psalms 23"
+  if (verses.lower === verses.upper) {
+    return `${book} ${chapter}:${verses.lower}`;            // "John 3:16"
+  }
+  return `${book} ${chapter}:${verses.lower}-${verses.upper}`; // "John 3:16-18"
+}
+```
+
+**Swift syntax:**
+- `struct BibleReference: Equatable, Sendable` — a `struct` is a *value type*: assigning or passing it copies it (no shared mutation), unlike a class/object reference. The `: Equatable, Sendable` are protocol conformances the compiler synthesizes — `Equatable` gives a free `==`, `Sendable` marks it safe to send across threads. In TS just model it as an `interface`.
+- `var displayText: String { ... }` — no `=` and no `()`, so this is a *computed property* (a getter that runs each access), like TS `get displayText()`.
+- `guard let verses else { return ... }` — `guard let` unwraps the optional `verses` into a non-optional binding *for the rest of the scope*; if it's nil, the `else` must exit. It's an early-return null check that also narrows the type.
+- `verses.lowerBound` / `.upperBound` — the inclusive ends of a `ClosedRange`.
+
 **Parsing — top level.** `parse(_:)` splits the trimmed input on whitespace. It needs at least two tokens (a book and a chapter spec). The **last** token is the chapter/verse part; everything before it is the book name (so "1 Corinthians" survives as two tokens, rejoined):
 
 ```swift
@@ -55,7 +83,46 @@ let bookInput = tokens.dropLast().joined(separator: " ")
 guard let book = BibleBookCatalog.canonical(for: bookInput) else { return nil }
 ```
 
+**TypeScript equivalent**
+
+```ts
+const tokens = trimmed.split(/\s+/).map((s) => String(s));
+if (tokens.length < 2) return null;
+
+const cv = parseChapterVerses(tokens[tokens.length - 1]); // last token
+if (cv == null) return null;
+const [chapter, verses] = cv;
+
+const bookInput = tokens.slice(0, -1).join(" ");          // everything before last
+const book = BibleBookCatalog.canonical(bookInput);
+if (book == null) return null;
+```
+
+**Swift syntax:**
+- `split(whereSeparator: \.isWhitespace)` — `\.isWhitespace` is a *key-path* used as a predicate: "split wherever a character's `isWhitespace` is true." Think `(c) => c.isWhitespace`.
+- `.map(String.init)` — passing an initializer as a function value; `String.init` is `(x) => String(x)`. Needed because `split` yields `Substring`s, not full `String`s.
+- `guard let (chapter, verses) = parseChapterVerses(...) else { return nil }` — unwraps the optional tuple *and* destructures it in one move. If `parseChapterVerses` returns nil, bail.
+- `tokens.last!` — `.last` is optional (`String?`); the `!` *force-unwraps* it (crashes if nil). Safe here only because the `count >= 2` guard ran first.
+- `tokens.dropLast()` — all but the last element, like `tokens.slice(0, -1)`.
+
 Then it sanity-checks the numbers (chapter must be positive, verse lower bound at least 1) and returns the assembled reference. Notice the book name is validated via the catalog — anything it doesn't recognize yields `nil` here.
+
+```swift
+guard chapter > 0 else { return nil }
+if let verses, verses.lowerBound < 1 { return nil }
+return BibleReference(book: book, chapter: chapter, verses: verses)
+```
+
+**TypeScript equivalent**
+
+```ts
+if (chapter <= 0) return null;
+if (verses != null && verses.lower < 1) return null;
+return { book, chapter, verses };
+```
+
+**Swift syntax:**
+- `if let verses, verses.lowerBound < 1` — combines an optional unwrap with a boolean condition: "if `verses` is non-nil *and* its lower bound is < 1". Equivalent to `if (verses != null && verses.lower < 1)`.
 
 **Parsing the trailing token.** `parseChapterVerses` handles the three shapes — `13`, `13:4`, `13:4-7`:
 
@@ -76,6 +143,46 @@ if let colon = token.firstIndex(of: ":") {
 guard let chapter = Int(token) else { return nil }
 return (chapter, nil)
 ```
+
+**TypeScript equivalent**
+
+```ts
+function parseChapterVerses(token: string): [number, ClosedRange | null] | null {
+  const colon = token.indexOf(":");
+  if (colon !== -1) {
+    const chapter = toInt(token.slice(0, colon));
+    if (chapter == null) return null;
+    const versesPart = token.slice(colon + 1);
+    const dash = versesPart.indexOf("-");
+    if (dash !== -1) {
+      const start = toInt(versesPart.slice(0, dash));
+      const end = toInt(versesPart.slice(dash + 1));
+      if (start == null || end == null || start > end) return null;
+      return [chapter, { lower: start, upper: end }];
+    }
+    const single = toInt(versesPart);
+    if (single == null) return null;
+    return [chapter, { lower: single, upper: single }];
+  }
+  const chapter = toInt(token);
+  if (chapter == null) return null;
+  return [chapter, null]; // whole chapter
+}
+
+// Int(...) returns nil on failure rather than NaN — model that explicitly:
+function toInt(s: string): number | null {
+  if (!/^-?\d+$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isInteger(n) ? n : null;
+}
+```
+
+**Swift syntax:**
+- `token.firstIndex(of: ":")` returns a `String.Index?` — an opaque cursor into the string (not an `Int`!), or `nil` if absent. `if let colon = ...` unwraps it.
+- `token[..<colon]` and `token[token.index(after: colon)...]` are *range subscripts*: `..<colon` is "up to but not including colon" (a one-sided `PartialRangeUpTo`), `index(after: colon)...` is "from just after the colon to the end." These map to `.slice(0, colon)` and `.slice(colon + 1)` — but note JS `.slice` takes integer offsets, while Swift uses `String.Index` because characters can be multi-byte.
+- `Int("13")` — Swift's `Int(_:)` failable initializer returns `Int?` (nil on non-numeric), the clean analog of a `parseInt` that rejects `NaN`.
+- `start...end` — the *closed range* operator, inclusive on both ends (`4...7` = 4,5,6,7). Compare `0..<n` (half-open, excludes `n`).
+- `return (chapter, nil)` — a *tuple* literal; the function's return type `(Int, ClosedRange<Int>?)?` is itself optional (the whole thing can be nil).
 
 A single verse is stored as a one-element range (`16...16`). No colon at all means "whole chapter" → `verses == nil`. A reversed range like `7-4` is rejected (`start <= end` fails).
 

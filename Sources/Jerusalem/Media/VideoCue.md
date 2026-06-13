@@ -15,14 +15,14 @@ Alongside it lives `VideoEndBehavior`, the small union of what should happen at 
 
 ## Swift you'll meet in this file
 
-- `struct VideoCue` — a value type, *copied* on assignment (unlike a `class`, which is shared by reference). This is what makes snapshots safe.
-- `enum VideoEndBehavior: String` — a TS-style union whose cases are backed by raw string values (handy for storage/serialization).
+- `struct VideoCue` — a value type, *copied* on assignment (unlike a `class`, which is shared by reference) → an immutable TS `interface` / `readonly` data object. This is what makes snapshots safe.
+- `enum VideoEndBehavior: String` — a TS-style union whose cases are backed by raw string values → `type … = "hold" | "black" | "advance"` (good for storage/serialization).
 - Protocol conformances:
-  - `Equatable` / `Hashable` — value equality and usability as a dictionary/set key (e.g. caching by cue).
-  - `Codable` — JSON-style encode/decode for persistence.
+  - `Equatable` / `Hashable` — value equality and usability as a dictionary/set key (e.g. caching by cue) → structural `===`-by-value + hashable for `Map`/`Set` keys.
+  - `Codable` — JSON-style encode/decode for persistence → `JSON.stringify`/`parse`.
   - `CaseIterable` — `.allCases` lists every case (for building a picker).
   - `Identifiable` — has an `id` (here the raw string), so SwiftUI lists can track it.
-  - `Sendable` — safe to pass across concurrency boundaries (threads/actors).
+  - `Sendable` — safe to pass across concurrency boundaries (threads/actors) → no TS analog (single-threaded).
 - `var id: String { rawValue }` / `var label: String { ... }` — computed properties (getters), like JS getters.
 - `switch self { case .hold: "..." }` — exhaustive match; each branch's expression is the returned value.
 - `let` = `const`; `URL` = a file URL; `Bool` = boolean.
@@ -45,6 +45,30 @@ enum VideoEndBehavior: String, Codable, CaseIterable, Identifiable, Sendable, Ha
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+// String raw enum ⇒ a string union, with the literals doubling as stable IDs
+type VideoEndBehavior = "hold" | "black" | "advance";
+
+const VideoEndBehavior = {
+  allCases: ["hold", "black", "advance"] as VideoEndBehavior[],  // CaseIterable
+  id: (b: VideoEndBehavior) => b,                                 // Identifiable
+  label: (b: VideoEndBehavior): string => {
+    switch (b) {                          // exhaustive switch (no default needed)
+      case "hold":    return "Hold last frame";
+      case "black":   return "Go to black";
+      case "advance": return "Advance to next";
+    }
+  },
+};
+```
+
+**Swift syntax:**
+- `enum VideoEndBehavior: String, Codable, CaseIterable, …` — a *raw-value* enum (`: String`) plus a list of *protocol conformances*. The cases get a backing string (`"hold"` etc.) via `rawValue`, and each protocol synthesizes behavior: `Codable` (de/serialize), `CaseIterable` (`.allCases`), `Identifiable` (`id`), `Hashable`/`Sendable`. → a string union plus a few helper tables.
+- `var id: String { rawValue }` — a computed getter returning the case's raw string → `get id() { return this }`.
+- `var label: String { switch self { case .hold: "…" } }` — the `switch` is an *expression*: each `case` is a bare value (no `return`) and the whole switch is the property's value. Exhaustive, so no `default` is needed. → a `switch` with explicit `return`s.
+
 The `String` raw type gives each case a stable string (`"hold"`, `"black"`, `"advance"`) for storage; `id` reuses it for SwiftUI; `label` provides the human-readable text shown in a picker. `CaseIterable` lets the UI list all three options. The behaviors map directly to runtime actions you can trace into `VideoPlayerView`: `.black` hides the player layer at end, `.advance` triggers `LiveState.next()`, `.hold` just leaves the last frame up.
 
 `VideoCue` itself is four stored fields and nothing else:
@@ -57,6 +81,25 @@ struct VideoCue: Equatable, Hashable, Sendable {
     var endBehavior: VideoEndBehavior
 }
 ```
+
+**TypeScript equivalent**
+
+```ts
+// struct ⇒ an immutable value object: copied on pass, compared by value.
+// readonly fields signal "snapshot, don't mutate" (the edit/live firewall).
+interface VideoCue {
+  readonly url: URL;
+  readonly loops: boolean;
+  readonly muted: boolean;
+  readonly endBehavior: VideoEndBehavior;
+}
+// Equatable/Hashable ⇒ value equality + usable as a Map/Set key
+// (e.g. VideoPlayerView's `cue != currentCue` change-check, and prewarm caching)
+```
+
+**Swift syntax:**
+- `struct VideoCue: Equatable, Hashable, Sendable` — a value type (copied on assignment/passing, not shared by reference like a `class`). The conformances give it value `==` (`Equatable`), hashability for `Set`/dictionary keys (`Hashable`), and cross-thread safety (`Sendable`). → an immutable interface; "copied on pass" is what makes it a safe live snapshot.
+- `var url: URL` inside a `struct` — fields are `var` (settable) but because the *whole struct* is copied, mutating a copy can't affect the live one. The renderer/live path treat cues as immutable. → `readonly` to signal the intent.
 
 Pure data. Its `Equatable`/`Hashable` conformance is load-bearing: `VideoPlayerView.apply(_:)` uses `cue != currentCue` to skip restarting an unchanged clip, and `VideoPrewarmer` keys its cache by URL derived from cues.
 

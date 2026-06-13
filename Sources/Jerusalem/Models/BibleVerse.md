@@ -13,12 +13,12 @@ It is **reference content, not user-authored**: the verses are seeded once at im
 The natural "primary key" is the combination `(translation, book, chapter, number)` — that four-part tuple uniquely identifies a verse. Storing this in SwiftData (rather than linking raw SQLite) lets the Bible reuse the same on-disk container, fetching, and ordering machinery as the rest of the app.
 
 ## Swift you'll meet in this file
-- `@Model final class` — a SwiftData database-backed class, like a Prisma/TypeORM entity. `final` means it can't be subclassed.
-- `var foo: String = "..."` — `var` is a mutable property (like a `let` binding in JS that you can reassign); the `= "..."` is a default value.
-- `Int` / `String` — plain types; `Int` is a whole number, `String` is text.
-- Computed property `var reference: String { ... }` — a getter, like a JS `get reference()`; it's calculated on the fly, not stored.
-- `\(...)` inside a string — string interpolation, same idea as JS `${...}` in a template literal.
-- `init(...)` — the constructor.
+- `@Model final class { … }` — a SwiftData database-backed class, like a Prisma/TypeORM entity. TS analog: `class BibleVerse { … }` with `// @Entity`. `final` (no subclassing) ≈ a class you wouldn't `extends`.
+- `var foo: String = "..."` — `var` is a mutable property; `: String` is the type annotation; `= "..."` is a default value. TS: `foo: string = "..."`.
+- `Int` / `String` — `number` (whole) / `string`.
+- Computed property `var reference: String { ... }` — a getter with no `=`, just a `{ }` returning a value. TS: `get reference(): string { ... }`.
+- `\(...)` inside a string — string interpolation. TS: `` `${...}` `` in a template literal.
+- `init(...)` — the constructor. TS: `constructor(...)`.
 
 ## Code walkthrough
 
@@ -31,6 +31,24 @@ final class BibleVerse {
     var number: Int = 0
     var text: String = ""
 ```
+
+**TypeScript equivalent**
+
+```ts
+// @Entity  (SwiftData @Model — one row per instance)
+class BibleVerse {
+  translation: string = "kjv";
+  book: string = "";
+  chapter: number = 0;
+  number: number = 0;
+  text: string = "";
+}
+```
+
+**Swift syntax:**
+- `@Model` — a macro that turns the class into a persisted SwiftData entity (each instance is a row). TS analog: an ORM `// @Entity` decorator.
+- `final class` — a reference type that cannot be subclassed. TS: a `class` (the `final` is just "no `extends`").
+- `var x: T = v` — mutable stored property with a default. The `: T` is the type; SwiftData wants defaults so it can create rows and evolve the schema.
 
 `@Model` marks this as a SwiftData entity, so each instance is a row that can be saved, fetched, and queried. The five stored properties are the columns:
 
@@ -51,11 +69,39 @@ init(translation: String, book: String, chapter: Int, number: Int, text: String)
 }
 ```
 
+**TypeScript equivalent**
+
+```ts
+constructor(translation: string, book: string, chapter: number, number: number, text: string) {
+  this.translation = translation;
+  this.book = book;
+  this.chapter = chapter;
+  this.number = number;
+  this.text = text;
+}
+```
+
+**Swift syntax:**
+- `init(...)` — the constructor; called as `BibleVerse(translation: ..., book: ...)`. Note the **argument labels**: callers must name each argument (`translation:`), unlike a positional TS call.
+- `self.x = x` — assigning the parameter to the property. TS: `this.x = x`.
+
 The constructor just assigns each argument to the matching property. `self.x = x` is the same as JS `this.x = x`.
 
 ```swift
 var reference: String { "\(book) \(chapter):\(number)" }
 ```
+
+**TypeScript equivalent**
+
+```ts
+get reference(): string {
+  return `${this.book} ${this.chapter}:${this.number}`;
+}
+```
+
+**Swift syntax:**
+- `var x: T { ... }` (no `=`, no `get`/`set` keyword) — a read-only **computed property**; the `{ }` block's value is returned. TS: `get x(): T { return ... }`.
+- A single-expression `{ }` body has an implicit return — no `return` keyword needed.
 
 This is a **computed property** (a getter — note there's no `=`, just a `{ }` block returning a value). It builds the human-facing label like `"John 3:16"` from the stored fields. The `"\(book) \(chapter):\(number)"` is string interpolation: it reads like `` `${book} ${chapter}:${number}` `` in JS. This label is shown to the operator as the slide's section label so they always know exactly what's being projected.
 
